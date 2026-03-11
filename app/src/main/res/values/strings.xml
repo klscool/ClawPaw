@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">ClawPaw</string>
+    <string name="accessibility_service_description">ClawPaw自动化</string>
+</resources>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?><!--
+   Sample backup rules file; uncomment and customize as necessary.
+   See https://developer.android.com/guide/topics/data/autobackup
+   for details.
+   Note: This file is ignored for devices older that API 31
+   See https://developer.android.com/about/versions/12/backup-restore
+-->
+<full-backup-content>
+    <!-- 排除含认证信息的 SharedPreferences，避免备份泄露 -->
+    <exclude domain="sharedpref" path="gateway_prefs.xml"/>
+    <exclude domain="sharedpref" path="clawpaw_ssh.xml"/>
+    <exclude domain="sharedpref" path="clawpaw_device_identity.xml"/>
+</full-backup-content>

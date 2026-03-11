@@ -1,0 +1,363 @@
+package com.example.clawpaw.presentation
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.viewModels
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.clawpaw.ssh.PortMapping
+import com.example.clawpaw.ssh.ReversePortMapping
+import com.example.clawpaw.ssh.SshTunnelConfig
+import com.example.clawpaw.ssh.SshTunnelViewModel
+import com.example.clawpaw.ui.theme.ClawPawTheme
+
+class SshTunnelActivity : ComponentActivity() {
+    private val viewModel: SshTunnelViewModel by viewModels()
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent {
+            ClawPawTheme {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    SshTunnelScreen(
+                        viewModel = viewModel,
+                        onBack = { finish() }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SshTunnelScreen(
+    viewModel: SshTunnelViewModel,
+    onBack: () -> Unit
+) {
+    val config: SshTunnelConfig by viewModel.config.collectAsStateWithLifecycle()
+    val mappings: List<PortMapping> by viewModel.mappings.collectAsStateWithLifecycle()
+    val reverseMappings: List<ReversePortMapping> by viewModel.reverseMappings.collectAsStateWithLifecycle()
+
+    var host by remember(config) { mutableStateOf(config.host) }
+    var portStr by remember(config.port) { mutableStateOf(config.port.toString()) }
+    var username by remember(config) { mutableStateOf(config.username) }
+    var password by remember(config) { mutableStateOf(config.password) }
+    var showProxy by remember { mutableStateOf(config.proxyPort > 0) }
+    var proxyHost by remember(config.proxyHost) { mutableStateOf(config.proxyHost) }
+    var proxyPortStr by remember(config.proxyPort) { mutableStateOf(if (config.proxyPort > 0) config.proxyPort.toString() else "") }
+
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        TopAppBar(
+            title = { Text("SSH / 隧道配置", style = MaterialTheme.typography.titleLarge) },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = MaterialTheme.colorScheme.background,
+                titleContentColor = MaterialTheme.colorScheme.onSurface,
+                navigationIconContentColor = MaterialTheme.colorScheme.onSurface
+            ),
+            navigationIcon = {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                }
+            }
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp)
+        ) {
+            // 卡片一：SSH 连接配置
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text("SSH 连接配置", style = MaterialTheme.typography.titleMedium)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = host,
+                        onValueChange = { host = it },
+                        label = { Text("地址 (host)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = portStr,
+                        onValueChange = { s -> if (s.isEmpty() || s.all { c -> c.isDigit() }) portStr = s },
+                        label = { Text("端口") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = username,
+                        onValueChange = { username = it },
+                        label = { Text("用户名") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("密码") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(onClick = { showProxy = !showProxy }) {
+                        Text(
+                            text = if (showProxy) "收起代理设置" else "代理（可选）— 经本地 SOCKS5 端口连接",
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                    if (showProxy) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "经本地 SOCKS5 代理连接，等同 ssh -o ProxyCommand=nc -X 5 -x 主机:端口",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = proxyHost,
+                            onValueChange = { proxyHost = it },
+                            label = { Text("代理主机") },
+                            placeholder = { Text("127.0.0.1") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = proxyPortStr,
+                            onValueChange = { s -> if (s.isEmpty() || s.all { c -> c.isDigit() }) proxyPortStr = s },
+                            label = { Text("代理端口（0 或留空=不使用）") },
+                            placeholder = { Text("7890") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = {
+                            val proxyPort = proxyPortStr.trim().toIntOrNull()?.takeIf { it in 0..65535 } ?: 0
+                            viewModel.updateConfig(
+                                SshTunnelConfig(
+                                    host = host.trim(),
+                                    port = portStr.toIntOrNull()?.takeIf { it in 1..65535 } ?: 22,
+                                    username = username.trim(),
+                                    password = password,
+                                    proxyHost = proxyHost.trim().ifEmpty { "127.0.0.1" },
+                                    proxyPort = proxyPort
+                                )
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("保存配置")
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 卡片二：正向映射（本地 → 远程）
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text("正向：本地 → 远程", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "访问本机 localhost:本地端口 即转发到 SSH 服务器上的 远程主机:远程端口。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    mappings.forEachIndexed { index: Int, m: PortMapping ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                m.displayText(),
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(onClick = { viewModel.removeMappingAt(index) }) {
+                                Icon(Icons.Default.Delete, contentDescription = "删除")
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    var localPort by remember { mutableStateOf("18789") }
+                    var remoteHost by remember { mutableStateOf("127.0.0.1") }
+                    var remotePort by remember { mutableStateOf("18789") }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = localPort,
+                            onValueChange = { localPort = it },
+                            label = { Text("本地端口") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        OutlinedTextField(
+                            value = remoteHost,
+                            onValueChange = { remoteHost = it },
+                            label = { Text("远程主机") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        OutlinedTextField(
+                            value = remotePort,
+                            onValueChange = { remotePort = it },
+                            label = { Text("远程端口") },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            val lp = localPort.toIntOrNull() ?: return@OutlinedButton
+                            val rp = remotePort.toIntOrNull() ?: return@OutlinedButton
+                            if (lp in 1..65535 && rp in 1..65535) {
+                                viewModel.addMapping(PortMapping(lp, remoteHost.trim().ifEmpty { "127.0.0.1" }, rp))
+                                localPort = ""
+                                remoteHost = "127.0.0.1"
+                                remotePort = ""
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("添加正向映射")
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 卡片二乙：反向映射（远程 → 本机）
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text("反向：远程 → 本机", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "访问 SSH 服务器上的远程端口即转发到本机 主机:端口。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    reverseMappings.forEachIndexed { index: Int, m: ReversePortMapping ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                m.displayText(),
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(onClick = { viewModel.removeReverseMappingAt(index) }) {
+                                Icon(Icons.Default.Delete, contentDescription = "删除")
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    var revRemotePort by remember { mutableStateOf("8765") }
+                    var revLocalHost by remember { mutableStateOf("127.0.0.1") }
+                    var revLocalPort by remember { mutableStateOf("8765") }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = revRemotePort,
+                            onValueChange = { s -> if (s.isEmpty() || s.all { c -> c.isDigit() }) revRemotePort = s },
+                            label = { Text("服务器端口") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        OutlinedTextField(
+                            value = revLocalHost,
+                            onValueChange = { revLocalHost = it },
+                            label = { Text("本机主机") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        OutlinedTextField(
+                            value = revLocalPort,
+                            onValueChange = { s -> if (s.isEmpty() || s.all { c -> c.isDigit() }) revLocalPort = s },
+                            label = { Text("本机端口") },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            val rp = revRemotePort.toIntOrNull() ?: return@OutlinedButton
+                            val lp = revLocalPort.toIntOrNull() ?: return@OutlinedButton
+                            if (rp in 1..65535 && lp in 1..65535) {
+                                viewModel.addReverseMapping(
+                                    ReversePortMapping(rp, revLocalHost.trim().ifEmpty { "127.0.0.1" }, lp)
+                                )
+                                revRemotePort = ""
+                                revLocalHost = "127.0.0.1"
+                                revLocalPort = ""
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("添加反向映射")
+                    }
+                }
+            }
+
+        }
+    }
+}

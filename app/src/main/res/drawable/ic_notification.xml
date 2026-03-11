@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 状态栏小图标：纯白+透明底，24dp。系统仅用 alpha 通道着色。vector 在部分机型上比 shape 更稳定。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,12m-10,0a10,10 0 1,1 20,0a10,10 0 1,1 -20,0"/>
+</vector>
