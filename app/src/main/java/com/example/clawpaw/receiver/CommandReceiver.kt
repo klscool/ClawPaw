@@ -25,7 +25,6 @@ import com.example.clawpaw.hardware.PhoneHelper
 import com.example.clawpaw.hardware.RingerHelper
 import com.example.clawpaw.hardware.VolumeHelper
 import com.example.clawpaw.service.ClawPawAccessibilityService
-import com.example.clawpaw.service.ClawPawInputMethodService
 import com.example.clawpaw.state.PhoneStateHelper
 import com.example.clawpaw.state.WifiHelper
 import com.example.clawpaw.util.CommandLog
@@ -86,7 +85,7 @@ class CommandReceiver : BroadcastReceiver() {
 
                     // 状态类、硬件类：不依赖无障碍，优先处理
                     when (action) {
-                        "get_location" -> {
+                        "location_get" -> {
                             val result = PhoneStateHelper.getLocation(context)
                             Logger.op(TAG, "定位: $result")
                             showToast(context, result)
@@ -167,14 +166,14 @@ class CommandReceiver : BroadcastReceiver() {
                             setResultData(if (ok) "ok" else "failed")
                             return
                         }
-                        "device.status" -> {
+                        "device_status" -> {
                             val result = PhoneStateHelper.getStateSnapshot(context)
                             val json = org.json.JSONObject(result).put("ok", true)
                             setResultCode(RESULT_OK)
                             setResultData(json.toString())
                             return
                         }
-                        "device.info" -> {
+                        "device_info" -> {
                             val name = RetrofitClient.getNodeDisplayName().trim().ifEmpty { android.os.Build.MODEL }
                             val json = org.json.JSONObject().apply {
                                 put("model", android.os.Build.MODEL)
@@ -193,7 +192,7 @@ class CommandReceiver : BroadcastReceiver() {
                             setResultData("""{"ok":false,"error":"该命令仅支持 Node(WebSocket)，ADB 未实现"}""")
                             return
                         }
-                        "notifications.list" -> {
+                        "notifications_list" -> {
                             val arr = NotificationsHelper.getNotifications(context)
                             setResultCode(RESULT_OK)
                             setResultData(arr.toString())
@@ -220,7 +219,7 @@ class CommandReceiver : BroadcastReceiver() {
                             setResultData(arr.toString())
                             return
                         }
-                        "photos.list" -> {
+                        "photos_latest" -> {
                             val limit = command.optInt("limit", 50)
                             val arr = PhotosHelper.getLatestPhotos(context, limit)
                             setResultCode(RESULT_OK)
@@ -369,7 +368,7 @@ class CommandReceiver : BroadcastReceiver() {
                             setResultData(if (ok) "ok" else "failed")
                             return
                         }
-                        "camera.snap" -> {
+                        "camera_snap" -> {
                             val facing = command.optInt("facing", 0)
                             val intent = Intent(context, CameraCaptureService::class.java).putExtra(CameraCaptureService.EXTRA_FACING, facing)
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)
@@ -407,30 +406,10 @@ class CommandReceiver : BroadcastReceiver() {
                             val y = command.getInt("y")
                             val text = command.getString("text")
                             Logger.op(TAG, "输入文本: $text 在坐标: ($x, $y)")
-                            // 先检查输入法服务是否已启动
-                            if (ClawPawInputMethodService.getInstance() == null) {
-                                Logger.op(TAG, "输入法服务未启动，先切换输入法")
-                                accessibilityService.selectInputMethod { success ->
-                                    if (success) {
-                                        Logger.op(TAG, "输入法切换成功，开始输入文本")
-                                        accessibilityService.click(x, y, text) { clickSuccess ->
-                                            val msg = if (clickSuccess) "点击并输入文本成功" else "操作失败"
-                                            Logger.op(TAG, msg)
-                                            showToast(context, msg)
-                                        }
-                                    } else {
-                                        val msg = "输入法切换失败"
-                                        Logger.error(TAG, msg)
-                                        showToast(context, msg)
-                                    }
-                                }
-                            } else {
-                                Logger.op(TAG, "输入法服务已启动，直接输入文本")
-                                accessibilityService.click(x, y, text) { success ->
-                                    val msg = if (success) "点击并输入文本成功" else "操作失败"
-                                    Logger.op(TAG, msg)
-                                    showToast(context, msg)
-                                }
+                            accessibilityService.click(x, y, text) { success ->
+                                val msg = if (success) "点击并输入文本成功" else "操作失败"
+                                Logger.op(TAG, msg)
+                                showToast(context, msg)
                             }
                         }
                         "swipe" -> {
@@ -502,11 +481,6 @@ class CommandReceiver : BroadcastReceiver() {
                                 }
                             }
                         }
-                        "open_amap" -> {
-                            Logger.op(TAG, "打开高德地图")
-                            val ok = accessibilityService.openAMap()
-                            showToast(context, if (ok) "正在打开高德地图" else "打开失败")
-                        }
                         "open_schema" -> {
                             val schema = command.optString("schema", command.optString("uri", ""))
                             Logger.op(TAG, "open_schema: $schema")
@@ -525,31 +499,15 @@ class CommandReceiver : BroadcastReceiver() {
                         }
                         "get_layout" -> {
                             Logger.op(TAG, "获取布局信息")
-                            accessibilityService.startTask()
                             val layout = accessibilityService.getLayout()
                             Logger.layout(TAG, "当前布局: $layout")
                             showToast(context, "已获取布局信息，查看日志")
-                        }
-                        "switch_input_method" -> {
-                            Logger.op(TAG, "切换输入法")
-                            accessibilityService.selectInputMethod { success ->
-                                val msg = if (success) "输入法切换成功" else "输入法切换失败"
-                                Logger.op(TAG, msg)
-                                showToast(context, msg)
-                            }
                         }
                         "screen_on" -> {
                             val ok = HardwareHelper.wakeScreen(context)
                             showToast(context, if (ok) "已点亮屏幕" else "点亮屏幕失败")
                             setResultCode(if (ok) RESULT_OK else RESULT_CANCELED)
                             setResultData(if (ok) "ok" else "failed")
-                            return
-                        }
-                        "start_task" -> {
-                            Logger.op(TAG, "ADB 仅用于测试原子方法，主流程请使用 Gateway 连接")
-                            showToast(context, "主流程请使用 Gateway；ADB 仅用于测试原子命令")
-                            setResultCode(RESULT_OK)
-                            setResultData("请使用 Gateway")
                             return
                         }
                         else -> {

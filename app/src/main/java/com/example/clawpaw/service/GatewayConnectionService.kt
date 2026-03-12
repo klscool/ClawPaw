@@ -118,9 +118,9 @@ class GatewayConnectionService : Service() {
         currentGatewayHost = host
         AppPrefs.init(applicationContext)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(NOTIFICATION_ID, buildNotification("连接中…"), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.notification_gateway_connecting)), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
-            startForeground(NOTIFICATION_ID, buildNotification("连接中…"))
+            startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.notification_gateway_connecting)))
         }
         if (!AppPrefs.getPersistentNotification() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(Service.STOP_FOREGROUND_REMOVE)
@@ -135,15 +135,15 @@ class GatewayConnectionService : Service() {
             requestHandler = { method, params ->
                 withContext(Dispatchers.Default) {
                     when (method) {
-                        "get_location", "location.get" -> kotlin.runCatching { JSONObject(PhoneStateHelper.getLocation(ctx)) }
+                        "location_get" -> kotlin.runCatching { JSONObject(PhoneStateHelper.getLocation(ctx)) }
                         "get_wifi_name" -> kotlin.runCatching { PhoneStateHelper.getWifiName(ctx) }
                         "get_screen_state" -> kotlin.runCatching { if (PhoneStateHelper.getScreenOn(ctx)) "on" else "off" }
                         "get_battery" -> kotlin.runCatching { PhoneStateHelper.getBatteryPercent(ctx) }
                         "get_state" -> kotlin.runCatching { JSONObject(PhoneStateHelper.getStateSnapshot(ctx)) }
-                        "device.status" -> kotlin.runCatching {
+                        "device_status" -> kotlin.runCatching {
                             JSONObject(PhoneStateHelper.getStateSnapshot(ctx)).apply { put("ok", true) }
                         }
-                        "device.info" -> kotlin.runCatching {
+                        "device_info" -> kotlin.runCatching {
                             val name = RetrofitClient.getNodeDisplayName().trim().ifEmpty { Build.MODEL }
                             JSONObject().apply {
                                 put("model", Build.MODEL)
@@ -172,7 +172,7 @@ class GatewayConnectionService : Service() {
                         "screen_on" -> kotlin.runCatching {
                             if (HardwareHelper.wakeScreen(ctx)) "ok" else throw IllegalStateException("wake failed")
                         }
-                        "notifications.list" -> kotlin.runCatching { NotificationsHelper.getNotifications(ctx) }
+                        "notifications_list" -> kotlin.runCatching { NotificationsHelper.getNotifications(ctx) }
                         "notifications.actions" -> kotlin.runCatching {
                             val action = params.optString("action", "dismiss")
                             val key = params.optString("key", "").takeIf { it.isNotBlank() }
@@ -214,7 +214,7 @@ class GatewayConnectionService : Service() {
                         "contacts.list", "contacts.search" -> kotlin.runCatching {
                             ContactsHelper.getContacts(ctx, params.optInt("limit", 500))
                         }
-                        "photos.list", "photos.latest" -> kotlin.runCatching {
+                        "photos_latest" -> kotlin.runCatching {
                             PhotosHelper.getLatestPhotos(ctx, params.optInt("limit", 50))
                         }
                         "calendar.list", "calendar.events" -> kotlin.runCatching {
@@ -275,7 +275,7 @@ class GatewayConnectionService : Service() {
                             val enabled = params.optBoolean("enabled", true)
                             if (RingerHelper.setDnd(ctx, enabled)) "ok" else throw IllegalStateException("need notification policy access")
                         }
-                        "camera.snap" -> kotlin.runCatching {
+                        "camera_snap" -> kotlin.runCatching {
                             val facing = params.optInt("facing", 0)
                             val intent = Intent(ctx, CameraCaptureService::class.java).putExtra(CameraCaptureService.EXTRA_FACING, facing)
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(intent) else ctx.startService(intent)
@@ -457,10 +457,10 @@ class GatewayConnectionService : Service() {
         AppPrefs.init(applicationContext)
         if (!AppPrefs.getPersistentNotification()) return
         val text = when (state) {
-            is GatewayConnection.ConnectionState.Connected -> "已连接"
-            is GatewayConnection.ConnectionState.Connecting -> "连接中…"
-            is GatewayConnection.ConnectionState.Error -> "错误: ${state.message}"
-            else -> "未连接"
+            is GatewayConnection.ConnectionState.Connected -> getString(R.string.notification_gateway_connected)
+            is GatewayConnection.ConnectionState.Connecting -> getString(R.string.notification_gateway_connecting)
+            is GatewayConnection.ConnectionState.Error -> getString(R.string.notification_gateway_error, state.message)
+            else -> getString(R.string.notification_gateway_disconnected)
         }
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(text))
     }

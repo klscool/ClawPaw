@@ -39,6 +39,22 @@ object SensorsHelper {
     }
 
     fun getStepCount(context: Context): JSONObject {
+        // 优先用系统 Health Connect 取当日自然日步数
+        val hcSteps = HealthConnectHelper.getTodayStepsFromHealthConnect(context)
+        if (hcSteps != null) {
+            val totalNow = run {
+                val sm = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager ?: return@run 0
+                val stepCounter = sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) ?: return@run 0
+                readStepCountRaw(context)
+            }
+            return JSONObject()
+                .put("steps", hcSteps.toInt())
+                .put("available", true)
+                .put("period", "today")
+                .put("totalSinceBoot", totalNow)
+                .put("dailyFromMidnight", true)
+                .put("source", "health_connect")
+        }
         val sm = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager ?: return JSONObject().put("error", "无传感器服务")
         val stepCounter = sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
         if (stepCounter == null) return JSONObject().put("steps", 0).put("available", false)
@@ -53,13 +69,14 @@ object SensorsHelper {
             stepsToday = totalNow - midnightSteps
             usedMidnightBaseline = true
         } else {
+            // 无 0 点基线时：以「今日首次读取」为当日起点，当日步数 = 当前累计 - 该基线（不把全部累计当作每日）
             val savedDate = prefs.getString(KEY_BASELINE_DATE, null)
             val savedBaseline = prefs.getInt(KEY_BASELINE_STEPS, 0)
             if (savedDate != today) {
-                stepsToday = totalNow
+                stepsToday = 0
                 prefs.edit().putString(KEY_BASELINE_DATE, today).putInt(KEY_BASELINE_STEPS, totalNow).apply()
             } else if (totalNow < savedBaseline) {
-                stepsToday = totalNow
+                stepsToday = 0
                 prefs.edit().putInt(KEY_BASELINE_STEPS, totalNow).apply()
             } else {
                 stepsToday = totalNow - savedBaseline
@@ -71,6 +88,7 @@ object SensorsHelper {
             .put("available", true)
             .put("period", "today")
             .put("totalSinceBoot", totalNow)
+            .put("dailyFromMidnight", usedMidnightBaseline)
         if (usedMidnightBaseline) out.put("source", "midnight_baseline")
         return out
     }

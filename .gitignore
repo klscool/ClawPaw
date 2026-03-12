@@ -25,3 +25,4 @@ local.properties
 # 文档与个人计划（不提交）
 /docs
 /重构文档
+.cursor

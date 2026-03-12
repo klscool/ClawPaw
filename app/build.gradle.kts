@@ -52,6 +52,7 @@ dependencies {
     // AndroidX Core
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation("androidx.appcompat:appcompat:1.6.1")
     
     // Compose UI
     implementation(libs.androidx.activity.compose)
@@ -63,6 +64,7 @@ dependencies {
     
     // 网络（OkHttp 用于 Gateway WebSocket；Retrofit/Gson 已移除，未使用）
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("org.nanohttpd:nanohttpd:2.3.1")
     implementation("org.bouncycastle:bcprov-jdk18on:1.78")
     implementation("com.github.mwiede:jsch:0.2.16")
@@ -77,6 +79,8 @@ dependencies {
     
     // WorkManager（0 点步数基线）
     implementation("androidx.work:work-runtime-ktx:2.9.0")
+    // Health Connect（优先用系统健康服务取当日步数；alpha10 兼容 compileSdk 35）
+    implementation("androidx.health.connect:connect-client:1.0.0-alpha10")
     
     // Material Design 3
     implementation("androidx.compose.material3:material3")
@@ -84,6 +88,9 @@ dependencies {
     implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.compose.material:material-icons-extended")
     implementation(libs.androidx.camera.core)
+    implementation("androidx.camera:camera-view:1.4.0")
+    implementation("androidx.camera:camera-lifecycle:1.4.0")
+    implementation("com.google.guava:guava:32.1.3-android")
 
     // 测试相关
     testImplementation(libs.junit)

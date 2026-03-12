@@ -10,7 +10,6 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import com.example.clawpaw.data.storage.AppPrefs
 import com.example.clawpaw.R
 import com.example.clawpaw.http.NodeHttpServer
 import com.example.clawpaw.presentation.MainActivity
@@ -49,14 +48,11 @@ class NodeHttpService : Service() {
                 return START_NOT_STICKY
             }
         }
+        // 始终保持前台，避免切后台被系统回收；开关状态由 MainPrefs 持久化，与其它设置一致
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
             startForeground(NOTIFICATION_ID, buildNotification())
-        }
-        AppPrefs.init(applicationContext)
-        if (!AppPrefs.getPersistentNotification() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            stopForeground(Service.STOP_FOREGROUND_REMOVE)
         }
         return START_STICKY
     }
@@ -77,7 +73,7 @@ class NodeHttpService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "执行端 HTTP 服务",
+                getString(R.string.notification_http_title),
                 NotificationManager.IMPORTANCE_LOW
             ).apply { setShowBadge(false) }
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
@@ -92,8 +88,8 @@ class NodeHttpService : Service() {
         )
         val largeIcon = android.graphics.BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher)
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("执行端 HTTP 服务")
-            .setContentText("端口 $PORT · Tailscale 可访问")
+            .setContentTitle(getString(R.string.notification_http_title))
+            .setContentText(getString(R.string.notification_http_text, PORT))
             .setSmallIcon(R.drawable.ic_notification)
             .setLargeIcon(largeIcon)
             .setContentIntent(pending)

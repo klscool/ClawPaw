@@ -5,6 +5,7 @@ import android.content.Context
 private const val PREFS = "main_prefs"
 private const val KEY_HTTP_SERVICE_ENABLED = "http_service_enabled"
 private const val KEY_AUTH_GUIDE_SHOWN_AFTER_CONNECT = "auth_guide_shown_after_connect"
+private const val KEY_APP_LANGUAGE = "app_language"
 
 object MainPrefs {
     private var prefs: android.content.SharedPreferences? = null
@@ -23,5 +24,12 @@ object MainPrefs {
 
     fun setAuthGuideShownAfterConnect(shown: Boolean) {
         prefs?.edit()?.putBoolean(KEY_AUTH_GUIDE_SHOWN_AFTER_CONNECT, shown)?.apply()
+    }
+
+    /** 应用内语言：system / zh / en */
+    fun getAppLanguage(): String = prefs?.getString(KEY_APP_LANGUAGE, "system") ?: "system"
+
+    fun setAppLanguage(tag: String) {
+        prefs?.edit()?.putString(KEY_APP_LANGUAGE, tag)?.apply()
     }
 }

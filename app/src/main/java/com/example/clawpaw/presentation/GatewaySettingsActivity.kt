@@ -2,7 +2,6 @@ package com.example.clawpaw.presentation
 
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import android.widget.Toast
@@ -32,13 +31,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.clawpaw.R
 import com.example.clawpaw.gateway.GatewayConnection
 import com.example.clawpaw.ui.theme.ClawPawTheme
 
-class GatewaySettingsActivity : ComponentActivity() {
+class GatewaySettingsActivity : LocaleAwareActivity() {
     private val viewModel: GatewaySettingsViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -83,7 +84,7 @@ fun GatewaySettingsScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text("OpenClaw Node 设置", style = MaterialTheme.typography.titleLarge) },
+            title = { Text(stringResource(R.string.gateway_title), style = MaterialTheme.typography.titleLarge) },
             colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
                 containerColor = MaterialTheme.colorScheme.background,
                 titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -91,7 +92,7 @@ fun GatewaySettingsScreen(
             ),
             navigationIcon = {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                 }
             }
         )
@@ -109,13 +110,13 @@ fun GatewaySettingsScreen(
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Text(
-                        text = "作用：把本机注册为 OpenClaw 的「节点」，让电脑端可通过 OpenClaw 远程控制本机（点击、滑动、输入等）。",
+                        text = stringResource(R.string.gateway_purpose),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "前提条件：① 已开启本应用的无障碍服务；② 电脑端已运行 OpenClaw 并开启 Gateway；③ 本机与电脑网络互通（同 WiFi、Tailscale 等）。",
+                        text = stringResource(R.string.gateway_prereq),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -132,8 +133,8 @@ fun GatewaySettingsScreen(
                     OutlinedTextField(
                         value = editNodeName,
                         onValueChange = { editNodeName = it },
-                        label = { Text("节点名称") },
-                        placeholder = { Text("留空则使用设备型号") },
+                        label = { Text(stringResource(R.string.gateway_node_name)) },
+                        placeholder = { Text(stringResource(R.string.gateway_node_name_placeholder)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -141,13 +142,13 @@ fun GatewaySettingsScreen(
                     OutlinedTextField(
                         value = editHost,
                         onValueChange = { editHost = it },
-                        label = { Text("Gateway 地址（支持域名或 IP）") },
-                        placeholder = { Text("例如 192.168.1.100 或 gateway.example.com") },
+                        label = { Text(stringResource(R.string.gateway_address)) },
+                        placeholder = { Text(stringResource(R.string.gateway_address_placeholder)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Text(
-                        text = "支持仅填主机（默认 ws），或完整地址如 wss://host:端口。",
+                        text = stringResource(R.string.gateway_address_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -155,14 +156,14 @@ fun GatewaySettingsScreen(
                     OutlinedTextField(
                         value = editPort,
                         onValueChange = { s -> editPort = s.filter { c -> c.isDigit() }.take(5) },
-                        label = { Text("端口") },
-                        placeholder = { Text("18789") },
+                        label = { Text(stringResource(R.string.common_port)) },
+                        placeholder = { Text(stringResource(R.string.gateway_port_placeholder)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "认证：Token 与密码二选一，连接时优先使用 Token。",
+                        text = stringResource(R.string.gateway_auth_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -172,13 +173,13 @@ fun GatewaySettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Gateway Token（可选）",
+                            text = stringResource(R.string.gateway_token_label),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (token.isEmpty()) "未设置" else "已设置",
+                            text = if (token.isEmpty()) stringResource(R.string.gateway_token_not_set) else stringResource(R.string.gateway_token_set),
                             style = MaterialTheme.typography.labelSmall,
                             color = if (token.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary
                         )
@@ -187,13 +188,13 @@ fun GatewaySettingsScreen(
                     OutlinedTextField(
                         value = if (showToken) editToken else maskedToken.ifEmpty { editToken },
                         onValueChange = { editToken = it },
-                        label = { Text("Token") },
-                        placeholder = { Text("留空则仅设备签名或使用密码") },
+                        label = { Text(stringResource(R.string.gateway_token)) },
+                        placeholder = { Text(stringResource(R.string.gateway_token_placeholder)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     TextButton(onClick = { showToken = !showToken }) {
-                        Text(if (showToken) "隐藏 Token" else "显示 Token", color = MaterialTheme.colorScheme.secondary)
+                        Text(if (showToken) stringResource(R.string.gateway_hide_token) else stringResource(R.string.gateway_show_token), color = MaterialTheme.colorScheme.secondary)
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(
@@ -201,13 +202,13 @@ fun GatewaySettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Gateway 密码（可选，与 Token 二选一）",
+                            text = stringResource(R.string.gateway_password_label),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (password.isEmpty()) "未设置" else "已设置",
+                            text = if (password.isEmpty()) stringResource(R.string.gateway_token_not_set) else stringResource(R.string.gateway_token_set),
                             style = MaterialTheme.typography.labelSmall,
                             color = if (password.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary
                         )
@@ -216,13 +217,13 @@ fun GatewaySettingsScreen(
                     OutlinedTextField(
                         value = if (showPassword) editPassword else maskedPassword.ifEmpty { editPassword },
                         onValueChange = { editPassword = it },
-                        label = { Text("密码") },
-                        placeholder = { Text("部分网关支持密码认证") },
+                        label = { Text(stringResource(R.string.gateway_password)) },
+                        placeholder = { Text(stringResource(R.string.gateway_password_placeholder)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     TextButton(onClick = { showPassword = !showPassword }) {
-                        Text(if (showPassword) "隐藏密码" else "显示密码", color = MaterialTheme.colorScheme.secondary)
+                        Text(if (showPassword) stringResource(R.string.gateway_hide_password) else stringResource(R.string.gateway_show_password), color = MaterialTheme.colorScheme.secondary)
                     }
                 }
             }
@@ -240,34 +241,34 @@ fun GatewaySettingsScreen(
                         viewModel.updateToken(editToken)
                         viewModel.updatePassword(editPassword)
                         viewModel.connect()
-                        Toast.makeText(context, "正在连接…", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.gateway_connecting_toast), Toast.LENGTH_SHORT).show()
                     },
                     enabled = connectionState !is GatewayConnection.ConnectionState.Connected && editHost.isNotBlank(),
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("连接")
+                    Text(stringResource(R.string.common_connect))
                 }
                 OutlinedButton(
                     onClick = {
                         viewModel.disconnect()
-                        Toast.makeText(context, "已断开", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.gateway_disconnected_toast), Toast.LENGTH_SHORT).show()
                     },
                     enabled = connectionState is GatewayConnection.ConnectionState.Connected,
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(10.dp),
                     colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.secondary)
                 ) {
-                    Text("断开")
+                    Text(stringResource(R.string.common_disconnect))
                 }
             }
 
             Text(
                 text = when (connectionState) {
-                    is GatewayConnection.ConnectionState.Connected -> "Gateway：已连接"
-                    is GatewayConnection.ConnectionState.Connecting -> "Gateway：连接中…"
-                    is GatewayConnection.ConnectionState.Disconnected -> "Gateway：未连接"
-                    is GatewayConnection.ConnectionState.Error -> "Gateway：连接失败"
+                    is GatewayConnection.ConnectionState.Connected -> stringResource(R.string.gateway_status_connected)
+                    is GatewayConnection.ConnectionState.Connecting -> stringResource(R.string.gateway_status_connecting)
+                    is GatewayConnection.ConnectionState.Disconnected -> stringResource(R.string.gateway_status_disconnected)
+                    is GatewayConnection.ConnectionState.Error -> stringResource(R.string.gateway_status_error)
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -281,7 +282,7 @@ fun GatewaySettingsScreen(
                 shape = RoundedCornerShape(10.dp),
                 colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
             ) {
-                Text("清除密钥对（重新配对）")
+                Text(stringResource(R.string.gateway_clear_keys))
             }
             if (showClearKeysConfirm) {
                 AlertDialog(
@@ -290,21 +291,21 @@ fun GatewaySettingsScreen(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface,
                     textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    title = { Text("确认清除密钥对", style = MaterialTheme.typography.titleLarge) },
-                    text = { Text("清除后需重新连接，并在电脑端执行 openclaw nodes approve 重新授权。确定继续？", style = MaterialTheme.typography.bodyMedium) },
+                    title = { Text(stringResource(R.string.gateway_clear_keys_confirm_title), style = MaterialTheme.typography.titleLarge) },
+                    text = { Text(stringResource(R.string.gateway_clear_keys_confirm_text), style = MaterialTheme.typography.bodyMedium) },
                     confirmButton = {
                         Button(
                             onClick = {
                                 showClearKeysConfirm = false
                                 viewModel.clearDeviceIdentity()
-                                Toast.makeText(context, "已清除设备身份，请重新连接并在主机执行 openclaw nodes approve", Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, context.getString(R.string.gateway_cleared_toast), Toast.LENGTH_LONG).show()
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                        ) { Text("确定") }
+                        ) { Text(stringResource(R.string.common_ok)) }
                     },
                     dismissButton = {
                         TextButton(onClick = { showClearKeysConfirm = false }) {
-                            Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.common_cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 )

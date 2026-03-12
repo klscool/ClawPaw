@@ -82,10 +82,10 @@ class NodeHttpServer(
                 put("无障碍_界面", org.json.JSONArray().apply {
                     put("get_layout"); put("screenshot"); put("click"); put("input_text"); put("input_text_direct")
                     put("swipe"); put("long_press"); put("two_finger_swipe_same"); put("two_finger_swipe_opposite")
-                    put("back"); put("open_amap"); put("open_schema")
+                    put("back"); put("open_schema")
                 })
                 put("状态", org.json.JSONArray().apply {
-                    put("get_location"); put("get_wifi_name"); put("get_screen_state"); put("get_battery"); put("get_state")
+                    put("location_get"); put("get_wifi_name"); put("get_screen_state"); put("get_battery"); put("get_state"); put("device_status"); put("device_info")
                 })
                 put("硬件", org.json.JSONArray().apply {
                     put("vibrate"); put("camera_rear"); put("camera_front"); put("screen_on")
@@ -103,10 +103,11 @@ class NodeHttpServer(
                 put(entry("two_finger_swipe_same", "两指同向张开放大（部分机型可能不生效）", """{"action":"two_finger_swipe_same","start_x":500,"start_y":1200,"end_x":500,"end_y":500}"""))
                 put(entry("two_finger_swipe_opposite", "两指反向（像缩小/放大照片）：并拢=缩小、张开=放大", """{"action":"two_finger_swipe_opposite","start_x":350,"start_y":900,"end_x":650,"end_y":900}""", """{"action":"two_finger_swipe_opposite","start_x":480,"start_y":900,"end_x":520,"end_y":900}"""))
                 put(entry("back", "返回键", """{"action":"back"}"""))
-                put(entry("open_amap", "打开高德地图", """{"action":"open_amap"}"""))
                 put(entry("open_schema", "按 schema/包名打开应用", """{"action":"open_schema","schema":"com.android.chrome"}"""))
                 // 状态（不依赖无障碍）
-                put(entry("get_location", "最后已知定位（需定位权限）", """{"action":"get_location"}"""))
+                put(entry("location_get", "最后已知定位（需定位权限）", """{"action":"location_get"}"""))
+                put(entry("device_status", "设备状态（同 get_state，带 ok:true）", """{"action":"device_status"}"""))
+                put(entry("device_info", "设备信息", """{"action":"device_info"}"""))
                 put(entry("get_wifi_name", "当前 WiFi 名称", """{"action":"get_wifi_name"}"""))
                 put(entry("get_screen_state", "屏幕亮/灭 on|off", """{"action":"get_screen_state"}"""))
                 put(entry("get_battery", "电量百分比 0-100", """{"action":"get_battery"}"""))
@@ -115,7 +116,10 @@ class NodeHttpServer(
                 put(entry("vibrate", "震动，可选 duration_ms", """{"action":"vibrate"}""", """{"action":"vibrate","duration_ms":500}"""))
                 put(entry("camera_rear", "后置拍照（异步）", """{"action":"camera_rear"}"""))
                 put(entry("camera_front", "前置拍照（异步）", """{"action":"camera_front"}"""))
+                put(entry("camera_snap", "拍照 facing:0 后置 1 前置", """{"action":"camera_snap","facing":0}"""))
                 put(entry("screen_on", "点亮/唤醒屏幕", """{"action":"screen_on"}"""))
+                put(entry("notifications_list", "通知列表", """{"action":"notifications_list"}"""))
+                put(entry("photos_latest", "最近照片，可选 limit", """{"action":"photos_latest","limit":50}"""))
             })
         return json(200, body)
     }
@@ -164,7 +168,7 @@ class NodeHttpServer(
 
         // 状态 / 硬件类：不依赖无障碍，直接处理
         when (action) {
-            "get_location" -> {
+            "location_get" -> {
                 com.example.clawpaw.data.storage.DebugPrefs.showCommandToastIfEnabled(appContext, action)
                 val result = PhoneStateHelper.getLocation(appContext)
                 return json(200, JSONObject().put("success", true).put("result", JSONObject(result)))
@@ -212,12 +216,12 @@ class NodeHttpServer(
                 val ok = HardwareHelper.wakeScreen(appContext)
                 return json(200, JSONObject().put("success", ok).put("result", if (ok) "ok" else "failed"))
             }
-            "device.status" -> {
+            "device_status" -> {
                 com.example.clawpaw.data.storage.DebugPrefs.showCommandToastIfEnabled(appContext, action)
                 val snapshot = PhoneStateHelper.getStateSnapshot(appContext)
                 return json(200, JSONObject().put("success", true).put("result", JSONObject(snapshot).put("ok", true)))
             }
-            "device.info" -> {
+            "device_info" -> {
                 com.example.clawpaw.data.storage.DebugPrefs.showCommandToastIfEnabled(appContext, action)
                 val name = RetrofitClient.getNodeDisplayName().trim().ifEmpty { Build.MODEL }
                 val info = JSONObject().apply {
@@ -229,7 +233,7 @@ class NodeHttpServer(
                 }
                 return json(200, JSONObject().put("success", true).put("result", info))
             }
-            "notifications.list" -> {
+            "notifications_list" -> {
                 com.example.clawpaw.data.storage.DebugPrefs.showCommandToastIfEnabled(appContext, action)
                 val arr = NotificationsHelper.getNotifications(appContext)
                 return json(200, JSONObject().put("success", true).put("result", arr))
@@ -253,7 +257,7 @@ class NodeHttpServer(
                 val arr = ContactsHelper.getContacts(appContext, limit)
                 return json(200, JSONObject().put("success", true).put("result", arr))
             }
-            "photos.list" -> {
+            "photos_latest" -> {
                 com.example.clawpaw.data.storage.DebugPrefs.showCommandToastIfEnabled(appContext, action)
                 val limit = body.optInt("limit", 50)
                 val arr = PhotosHelper.getLatestPhotos(appContext, limit)
@@ -370,7 +374,7 @@ class NodeHttpServer(
                 val ok = RingerHelper.setDnd(appContext, enabled)
                 return json(200, JSONObject().put("success", ok).put("result", if (ok) "ok" else "failed"))
             }
-            "camera.snap" -> {
+            "camera_snap" -> {
                 com.example.clawpaw.data.storage.DebugPrefs.showCommandToastIfEnabled(appContext, action)
                 val facing = body.optInt("facing", 0)
                 val intent = Intent(appContext, CameraCaptureService::class.java).putExtra(CameraCaptureService.EXTRA_FACING, facing)
@@ -405,7 +409,6 @@ class NodeHttpServer(
             "two_finger_swipe_same" -> "two_finger_swipe_same"
             "two_finger_swipe_opposite" -> "two_finger_swipe_opposite"
             "back" -> "back"
-            "open_amap" -> "open_amap"
             "open_schema", "open_app" -> "open_schema"
             else -> action
         }

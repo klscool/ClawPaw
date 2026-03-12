@@ -36,6 +36,8 @@
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <!-- Health Connect：读取步数（当日自然日步数） -->
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
 
     <application
         android:name=".ClawPawApplication"
@@ -75,6 +77,16 @@
             android:exported="false"
             android:theme="@style/Theme.ClawPaw"
             android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".presentation.QrScanActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ClawPaw"
+            android:screenOrientation="portrait" />
+        <!-- 覆盖 ZXing 扫码页为竖屏 -->
+        <activity
+            android:name="com.journeyapps.barcodescanner.CaptureActivity"
+            android:screenOrientation="portrait"
+            tools:replace="android:screenOrientation" />
 
         <service
             android:name=".service.ClawPawAccessibilityService"
@@ -93,7 +105,7 @@
         <service
             android:name=".service.ClawPawInputMethodService"
             android:exported="true"
-            android:label="ClawPaw输入法"
+            android:label="@string/input_method_label"
             android:permission="android.permission.BIND_INPUT_METHOD">
             <intent-filter>
                 <action android:name="android.view.InputMethod" />

@@ -14,8 +14,6 @@ import android.util.Log
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -24,9 +22,6 @@ import java.util.concurrent.Executor
 import android.content.ClipboardManager
 import android.content.ClipData
 import android.os.Bundle
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.asStateFlow
 import com.example.clawpaw.util.Logger
 import android.content.Context
 import android.view.WindowManager
@@ -41,16 +36,13 @@ class ClawPawAccessibilityService : AccessibilityService() {
         private const val HUMAN_SWIPE_OFFSET = 25f
         /** 长按时长（毫秒） */
         private const val LONG_PRESS_DURATION_MS = 700L
+        /** 单指滑动时长（毫秒），越小越快 */
+        private const val SWIPE_DURATION_MS = 150L
         /** 两指同向滑动时第二指与第一指的垂直间距（像素） */
         private const val TWO_FINGER_OFFSET = 48f
 
         fun getInstance(): ClawPawAccessibilityService? = instance
     }
-    
-    private val _currentPackageName = MutableStateFlow<String?>(null)
-    val currentPackageName: StateFlow<String?> = _currentPackageName.asStateFlow()
-
-    private var isTaskRunning = false
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -58,31 +50,7 @@ class ClawPawAccessibilityService : AccessibilityService() {
         Logger.service(TAG, "无障碍服务已连接")
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        if (!isTaskRunning) return
-
-        when (event.eventType) {
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                event.packageName?.toString()?.let { packageName ->
-                    _currentPackageName.value = packageName
-                    Logger.service(TAG, "当前应用包名: $packageName")
-                }
-            }
-        }
-    }
-
-    // 检查当前是否是指定的应用
-    fun isCurrentApp(packageName: String): Boolean {
-        return _currentPackageName.value == packageName
-    }
-
-    // 等待指定应用成为前台应用
-    suspend fun waitForApp(packageName: String, timeoutMillis: Long = 5000): Boolean {
-        return withTimeoutOrNull(timeoutMillis) {
-            _currentPackageName.first { it == packageName }
-            true
-        } ?: false
-    }
+    override fun onAccessibilityEvent(event: AccessibilityEvent) {}
 
     override fun onInterrupt() {
         Log.d(TAG, "无障碍服务被中断")
@@ -96,72 +64,11 @@ class ClawPawAccessibilityService : AccessibilityService() {
     private fun getLayoutInfo(node: AccessibilityNodeInfo?): String {
         if (node == null) return ""
         
-        val currentPackage = _currentPackageName.value ?: "unknown"
         val stringBuilder = StringBuilder()
-//        stringBuilder.append("当前应用包名:$currentPackage")
 
-        // 存储找到的关闭按钮
-        val closeButtons = mutableListOf<String>()
-        
         fun appendNodeInfo(node: AccessibilityNodeInfo?, path: List<Int> = emptyList()) {
             if (node == null) return
-            
-            // 检查是否是包含"关闭"的ImageView
-            if ((node.className?.contains("ImageView") == true &&
-                        node.parent?.text?.contains("关闭页面") != true &&
-                (node.parent?.text?.contains("关闭") == true || 
-                 node.parent?.contentDescription?.contains("关闭") == true)) ||
-                node.viewIdResourceName?.contains("iv_close") == true) {
-                val bounds = Rect()
-                node.getBoundsInScreen(bounds)
-                
-                // 添加坐标限制：如果按钮在左上角（x和y都小于100），则跳过
-                if (bounds.left < 100 && bounds.top < 100) {
-                    return
-                }
-                
-                closeButtons.add(
-                    "找到关闭按钮 -> " +
-                    "类型: ${node.className}, " +
-                    "父节点文本: ${node.parent?.text}, " +
-                    "父节点描述: ${node.parent?.contentDescription}, " +
-                    "ID: ${node.viewIdResourceName}, " +
-                    "位置: (${bounds.left},${bounds.top},${bounds.right},${bounds.bottom}), " +
-                    "可点击: ${node.isClickable}"
-                )
-                
-                // 点击关闭按钮的中心点
-                click(bounds.centerX(), bounds.centerY()) { success ->
-                    if (success) {
-                        Logger.i(TAG, "点击关闭按钮成功")
-                    } else {
-                        Logger.e(TAG, "点击关闭按钮失败")
-                    }
-                }
-            }
 
-            // 检查是否是"满意给5分"文本
-            if (node.text?.toString() == "满意给5分") {
-                val bounds = Rect()
-                node.getBoundsInScreen(bounds)
-                
-                // 获取屏幕宽度
-                val displayMetrics = resources.displayMetrics
-                val screenWidth = displayMetrics.widthPixels
-                
-                // 计算偏移值为屏幕宽度的七分之一
-                val offset = screenWidth / 7
-                
-                // 点击文本左侧位置
-                click(bounds.centerX() - offset, bounds.centerY()) { success ->
-                    if (success) {
-                        Logger.i(TAG, "点击评分成功，屏幕宽度：$screenWidth，使用偏移量：$offset")
-                    } else {
-                        Logger.e(TAG, "点击评分失败")
-                    }
-                }
-            }
-            
             // 检查节点是否包含必要的信息
             val hasContent = node.text != null || 
                            node.contentDescription != null || 
@@ -183,7 +90,6 @@ class ClawPawAccessibilityService : AccessibilityService() {
             }
             
             stringBuilder.append("<")
-            stringBuilder.append(" path=\"${path.joinToString(",")}\"")
             node.text?.let { stringBuilder.append(" text=\"$it\"") }
             node.contentDescription?.let { stringBuilder.append(" content-desc=\"$it\"") }
             node.viewIdResourceName?.let { stringBuilder.append(" resource-id=\"$it\"") }
@@ -219,12 +125,6 @@ class ClawPawAccessibilityService : AccessibilityService() {
         
         appendNodeInfo(node)
 
-        // 打印找到的关闭按钮
-        if (closeButtons.isNotEmpty()) {
-            Logger.i(TAG+"|glmclose", "找到 ${closeButtons.size} 个关闭按钮:")
-            closeButtons.forEach { Logger.i(TAG, it) }
-        }
-        
         return stringBuilder.toString()
     }
 
@@ -397,7 +297,7 @@ class ClawPawAccessibilityService : AccessibilityService() {
         }
         val gestureBuilder = GestureDescription.Builder()
         val gesture = gestureBuilder
-            .addStroke(GestureDescription.StrokeDescription(path, 0, 500))
+            .addStroke(GestureDescription.StrokeDescription(path, 0, SWIPE_DURATION_MS))
             .build()
         dispatchGesture(gesture, object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
@@ -412,8 +312,6 @@ class ClawPawAccessibilityService : AccessibilityService() {
     fun back() {
         performGlobalAction(GLOBAL_ACTION_BACK)
     }
-
-    fun openAMap(): Boolean = openBySchema("amapuri://")
 
     /**
      * 根据 schema/URI 或包名打开任意应用。例如：amapuri://、baidumap://、com.android.chrome、https://...
@@ -531,184 +429,6 @@ class ClawPawAccessibilityService : AccessibilityService() {
         } catch (e: Exception) {
             Logger.error(TAG, "截图过程发生异常", e)
             callback(null)
-        }
-    }
-
-    fun startTask() {
-        isTaskRunning = true
-        Logger.service(TAG, "开始任务")
-    }
-
-    fun stopTask() {
-        isTaskRunning = false
-        Logger.service(TAG, "停止任务")
-    }
-
-    fun selectInputMethod(callback: ((Boolean) -> Unit)? = null) {
-        // 显示输入法选择器
-        val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-        imm.showInputMethodPicker()
-        
-        // 等待输入法选择器显示
-        Handler(Looper.getMainLooper()).postDelayed({
-            val root = rootInActiveWindow
-            if (root != null) {
-                try {
-                    // 先直接查找我们的输入法
-                    fun findClawPawInputMethod(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
-                        if (node == null) return null
-                        
-                        // 检查当前节点的文本是否为我们的输入法
-                        val text = node.text?.toString() ?: ""
-                        if (text.contains("ClawPaw输入法")) {
-                            return node
-                        }
-                        
-                        // 递归查找子节点
-                        for (i in 0 until node.childCount) {
-                            val result = findClawPawInputMethod(node.getChild(i))
-                            if (result != null) {
-                                return result
-                            }
-                        }
-                        
-                        return null
-                    }
-                    
-                    // 先尝试直接点击我们的输入法
-                    val inputMethodNode = findClawPawInputMethod(root)
-                    if (inputMethodNode != null) {
-                        val bounds = Rect()
-                        inputMethodNode.getBoundsInScreen(bounds)
-                        click(bounds.centerX(), bounds.centerY())
-                        Log.d(TAG, "已直接找到并点击ClawPaw输入法")
-                        // 等待一下再点击确定按钮
-                        Handler(Looper.getMainLooper()).postDelayed({
-                            val newRoot = rootInActiveWindow
-                            if (newRoot != null) {
-                                try {
-                                    clickConfirmButton(newRoot)
-                                    // 等待输入法切换完成
-                                    Handler(Looper.getMainLooper()).postDelayed({
-                                        callback?.invoke(ClawPawInputMethodService.getInstance() != null)
-                                    }, 500)
-                                } finally {
-                                    newRoot.recycle()
-                                }
-                            }
-                        }, 300)
-                        return@postDelayed
-                    }
-                    
-                    // 如果没找到，查找并点击"其他输入法"选项
-                    fun findOtherInputMethodsNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
-                        if (node == null) return null
-                        
-                        // 检查当前节点的文本是否为"其他输入法"
-                        val text = node.text?.toString() ?: ""
-                        if (text == "其他输入法") {
-                            return node
-                        }
-                        
-                        // 递归查找子节点
-                        for (i in 0 until node.childCount) {
-                            val result = findOtherInputMethodsNode(node.getChild(i))
-                            if (result != null) {
-                                return result
-                            }
-                        }
-                        
-                        return null
-                    }
-                    
-                    // 点击"其他输入法"选项
-                    val otherInputMethodsNode = findOtherInputMethodsNode(root)
-                    if (otherInputMethodsNode != null) {
-                        val bounds = Rect()
-                        otherInputMethodsNode.getBoundsInScreen(bounds)
-                        click(bounds.centerX(), bounds.centerY())
-                        Log.d(TAG, "已找到并点击其他输入法选项")
-                        
-                        // 等待展开后再查找我们的输入法
-                        Handler(Looper.getMainLooper()).postDelayed({
-                            val newRoot = rootInActiveWindow
-                            if (newRoot != null) {
-                                try {
-                                    // 再次查找我们的输入法
-                                    val expandedInputMethodNode = findClawPawInputMethod(newRoot)
-                                    if (expandedInputMethodNode != null) {
-                                        val newBounds = Rect()
-                                        expandedInputMethodNode.getBoundsInScreen(newBounds)
-                                        click(newBounds.centerX(), newBounds.centerY())
-                                        Log.d(TAG, "已在展开列表中找到并点击ClawPaw输入法")
-                                        // 等待一下再点击确定按钮
-                                        Handler(Looper.getMainLooper()).postDelayed({
-                                            val finalRoot = rootInActiveWindow
-                                            if (finalRoot != null) {
-                                                try {
-                                                    clickConfirmButton(finalRoot)
-                                                    // 等待输入法切换完成
-                                                    Handler(Looper.getMainLooper()).postDelayed({
-                                                        callback?.invoke(ClawPawInputMethodService.getInstance() != null)
-                                                    }, 500)
-                                                } finally {
-                                                    finalRoot.recycle()
-                                                }
-                                            }
-                                        }, 300)
-                                    } else {
-                                        Log.e(TAG, "在展开列表中未找到ClawPaw输入法选项")
-                                        callback?.invoke(false)
-                                    }
-                                } finally {
-                                    newRoot.recycle()
-                                }
-                            }
-                        }, 500) // 等待500ms让选项展开
-                    } else {
-                        Log.e(TAG, "未找到其他输入法选项")
-                        callback?.invoke(false)
-                    }
-                } finally {
-                    root.recycle()
-                }
-            } else {
-                callback?.invoke(false)
-            }
-        }, 500) // 等待500ms让输入法选择器显示
-    }
-
-    private fun clickConfirmButton(root: AccessibilityNodeInfo) {
-        // 查找确定按钮
-        fun findConfirmButton(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
-            if (node == null) return null
-            
-            // 检查当前节点的文本是否为"确定"
-            val text = node.text?.toString() ?: ""
-            if (text == "确定") {
-                return node
-            }
-            
-            // 递归查找子节点
-            for (i in 0 until node.childCount) {
-                val result = findConfirmButton(node.getChild(i))
-                if (result != null) {
-                    return result
-                }
-            }
-            
-            return null
-        }
-        
-        // 查找并点击确定按钮
-        val confirmButton = findConfirmButton(root)
-        if (confirmButton != null) {
-            val bounds = Rect()
-            confirmButton.getBoundsInScreen(bounds)
-            click(bounds.centerX(), bounds.centerY())
-            Log.d(TAG, "已找到并点击确定按钮")
-        } else {
-            Log.d(TAG, "未找到确定按钮")
         }
     }
 

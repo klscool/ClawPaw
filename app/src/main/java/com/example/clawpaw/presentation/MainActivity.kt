@@ -4,7 +4,6 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -48,9 +47,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.example.clawpaw.R
 import com.example.clawpaw.ui.theme.clawpaw_primary
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -60,6 +61,7 @@ import android.widget.Toast
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -68,6 +70,7 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.example.clawpaw.data.api.RetrofitClient
 import com.example.clawpaw.data.storage.AppPrefs
 import com.example.clawpaw.data.storage.MainPrefs
 import com.example.clawpaw.data.storage.ChatFontSize
@@ -85,16 +88,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
-class MainActivity : ComponentActivity() {
+class MainActivity : LocaleAwareActivity() {
     private val viewModel: MainViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         com.example.clawpaw.data.storage.OnboardingPrefs.init(this)
-        // 仅首次打开显示引导；已完成或从引导内「开始使用」进入则直接进主页
+        // 测试用：每次启动都进引导；从引导内「开始使用」进入则进主页。测完改回：if (!completed && !fromOnboarding)
         val fromOnboarding = intent.getBooleanExtra("from_onboarding", false)
-        val completed = com.example.clawpaw.data.storage.OnboardingPrefs.isCompleted()
-        if (!completed && !fromOnboarding) {
+        if (!fromOnboarding) {
             startActivity(Intent(this, OnboardingActivity::class.java))
             finish()
             return
@@ -138,7 +140,7 @@ private fun StatusChip(ready: Boolean) {
         color = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
     ) {
         Text(
-            text = if (ready) "就绪" else "未就绪",
+            text = if (ready) stringResource(R.string.common_ready) else stringResource(R.string.common_not_ready),
             style = MaterialTheme.typography.labelSmall,
             color = if (ready) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
@@ -198,7 +200,7 @@ fun MainScreen(viewModel: MainViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("ClawPaw", style = MaterialTheme.typography.titleMedium) },
+                title = { Text(stringResource(R.string.main_title), style = MaterialTheme.typography.titleMedium) },
                 modifier = Modifier.heightIn(min = 32.dp, max = 40.dp),
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
@@ -212,19 +214,19 @@ fun MainScreen(viewModel: MainViewModel) {
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
                     icon = { Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(22.dp)) },
-                    label = { Text("连接状态", style = MaterialTheme.typography.labelSmall) }
+                    label = { Text(stringResource(R.string.main_tab_connection), style = MaterialTheme.typography.labelSmall) }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
                     icon = { Icon(Icons.Default.Chat, contentDescription = null, modifier = Modifier.size(22.dp)) },
-                    label = { Text("对话", style = MaterialTheme.typography.labelSmall) }
+                    label = { Text(stringResource(R.string.main_tab_chat), style = MaterialTheme.typography.labelSmall) }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
                     icon = { Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(22.dp)) },
-                    label = { Text("设置", style = MaterialTheme.typography.labelSmall) }
+                    label = { Text(stringResource(R.string.main_tab_settings), style = MaterialTheme.typography.labelSmall) }
                 )
             }
         }
@@ -270,6 +272,89 @@ private const val MAX_CHAT_ATTACHMENTS = 8
 /** 单个附件最大约 3MB（过大会导致发送超时或 Gateway 拒绝） */
 private const val MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024
 
+/** 解析链接/扫码内容并写入 host/port/token、发起连接。无 url 或 token 时弹提示 */
+private fun applyParsedLink(context: Context, content: String, viewModel: MainViewModel) {
+    if (!com.example.clawpaw.util.GatewayPairingHelper.parseAndSaveToPrefs(context, content)) {
+        Toast.makeText(context, context.getString(R.string.main_link_qr_parse_error), Toast.LENGTH_SHORT).show()
+        return
+    }
+    val parsed = com.example.clawpaw.util.GatewayPairingHelper.parse(content)!!
+    viewModel.updateGatewayHost(parsed.first)
+    viewModel.updateGatewayPort(parsed.second)
+    viewModel.updateGatewayToken(parsed.third!!)
+    viewModel.connectGateway()
+}
+
+@Composable
+private fun NodeLinkMethodsCard(context: Context, viewModel: MainViewModel) {
+    RetrofitClient.init(context)
+    var linkOrCode by remember { mutableStateOf("") }
+    val activity = context as? Activity
+    val qrScanLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        try {
+            val scanResult = com.google.zxing.integration.android.IntentIntegrator.parseActivityResult(result.resultCode, result.data)
+            scanResult?.contents?.let { applyParsedLink(context, it, viewModel) }
+        } catch (_: Exception) { }
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Text(stringResource(R.string.main_link_methods), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(stringResource(R.string.main_link_setup_code), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.main_link_setup_code_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(modifier = Modifier.height(6.dp))
+            OutlinedTextField(
+                value = linkOrCode,
+                onValueChange = { linkOrCode = it },
+                label = { Text(stringResource(R.string.main_link_setup_code_placeholder)) },
+                placeholder = { Text(stringResource(R.string.main_link_setup_code_placeholder)) },
+                singleLine = false,
+                maxLines = 3,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(
+                onClick = { applyParsedLink(context, linkOrCode.trim(), viewModel) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                enabled = linkOrCode.isNotBlank()
+            ) {
+                Text(stringResource(R.string.main_link_connect_with_code))
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(stringResource(R.string.main_link_scan_qr), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.main_link_scan_qr_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = {
+                    activity?.let { act ->
+                        try {
+                            val integrator = com.google.zxing.integration.android.IntentIntegrator(act)
+                            integrator.setDesiredBarcodeFormats(listOf("QR_CODE"))
+                            integrator.setPrompt(context.getString(R.string.main_link_scan_prompt))
+                            integrator.setBeepEnabled(true)
+                            qrScanLauncher.launch(integrator.createScanIntent())
+                        } catch (e: Exception) {
+                            Toast.makeText(context, context.getString(R.string.main_link_qr_parse_error), Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text(stringResource(R.string.main_link_scan_qr_btn))
+            }
+        }
+    }
+}
+
 private data class PendingChatAttachment(val id: String, val fileName: String, val mimeType: String, val base64: String)
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -309,7 +394,7 @@ private fun ChatTabContent(viewModel: MainViewModel) {
             }
             chatAttachments.addAll(list)
             attachmentsLoading = false
-            if (skipped > 0) Toast.makeText(context, "有 $skipped 个文件超过 3MB 已跳过", Toast.LENGTH_SHORT).show()
+            if (skipped > 0) Toast.makeText(context, context.getString(R.string.main_toast_files_skipped, skipped), Toast.LENGTH_SHORT).show()
         }
     }
     val pickImageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { addUrisToAttachments(it) }
@@ -322,7 +407,7 @@ private fun ChatTabContent(viewModel: MainViewModel) {
     val timeFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()) }
     val listState = rememberLazyListState()
     val now = System.currentTimeMillis()
-    val sessionOptions = if (sessions.isNotEmpty()) sessions else if (operatorConnected) listOf(ChatSessionEntry("main", "主会话", null)) else emptyList()
+    val sessionOptions = if (sessions.isNotEmpty()) sessions else if (operatorConnected) listOf(ChatSessionEntry("main", stringResource(R.string.main_chat_session_default), null)) else emptyList()
     val validSessions = sessionOptions.filter { it.updatedAtMs == null || it.updatedAtMs >= now - SESSION_CUTOFF_MS }
     val recentSessions = validSessions.filter { it.updatedAtMs != null && it.updatedAtMs >= now - RECENT_SESSION_MS }
     val otherSessions = validSessions.filter { it.updatedAtMs == null || it.updatedAtMs < now - RECENT_SESSION_MS }
@@ -370,20 +455,20 @@ private fun ChatTabContent(viewModel: MainViewModel) {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                "与 $currentSessionLabel 对话",
+                                stringResource(R.string.main_chat_with_session, currentSessionLabel),
                                 style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            Icon(Icons.Default.ExpandMore, contentDescription = "选择会话", modifier = Modifier.size(20.dp))
+                            Icon(Icons.Default.ExpandMore, contentDescription = stringResource(R.string.main_select_session), modifier = Modifier.size(20.dp))
                         }
                         DropdownMenu(
                             expanded = sessionMenuExpanded,
                             onDismissRequest = { sessionMenuExpanded = false }
                         ) {
                             if (recentSessions.isNotEmpty()) {
-                                Text("近10分钟", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                                Text(stringResource(R.string.main_recent_10min), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                                 recentSessions.forEach { entry ->
                                     DropdownMenuItem(
                                         text = { Text(friendlySessionName(entry.key, entry.displayName), maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -403,13 +488,13 @@ private fun ChatTabContent(viewModel: MainViewModel) {
                                     color = MaterialTheme.colorScheme.surface
                                 ) {
                                     Text(
-                                        if (sessionExpandMore) "收起" else "展开更多 (${otherSessions.size})",
+                                        if (sessionExpandMore) stringResource(R.string.main_collapse) else stringResource(R.string.main_expand_more, otherSessions.size),
                                         style = MaterialTheme.typography.bodyMedium,
                                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                                     )
                                 }
                                 if (sessionExpandMore) {
-                                    Text("10分钟～2小时", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                                    Text(stringResource(R.string.main_10min_2hr), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                                     otherSessions.forEach { entry ->
                                         DropdownMenuItem(
                                             text = { Text(friendlySessionName(entry.key, entry.displayName), maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -424,7 +509,7 @@ private fun ChatTabContent(viewModel: MainViewModel) {
                         }
                     }
                 } else {
-                    Text("与 OpenClaw 对话", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                    Text(stringResource(R.string.main_chat_with_openclaw), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -432,7 +517,7 @@ private fun ChatTabContent(viewModel: MainViewModel) {
                     FilterChip(
                         selected = false,
                         onClick = { roleMenuExpanded = true },
-                        label = { Text("角色", style = MaterialTheme.typography.labelSmall) }
+                        label = { Text(stringResource(R.string.main_role), style = MaterialTheme.typography.labelSmall) }
                     )
                     DropdownMenu(
                         expanded = roleMenuExpanded,
@@ -444,7 +529,7 @@ private fun ChatTabContent(viewModel: MainViewModel) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Checkbox(checked = showChat, onCheckedChange = null)
                                     Spacer(Modifier.width(8.dp))
-                                    Text("只显示聊天")
+                                    Text(stringResource(R.string.main_show_chat_only))
                                 }
                             },
                             onClick = {
@@ -460,7 +545,7 @@ private fun ChatTabContent(viewModel: MainViewModel) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Checkbox(checked = showTool, onCheckedChange = null)
                                     Spacer(Modifier.width(8.dp))
-                                    Text("显示工具调用")
+                                    Text(stringResource(R.string.main_show_tool_calls))
                                 }
                             },
                             onClick = {
@@ -474,14 +559,14 @@ private fun ChatTabContent(viewModel: MainViewModel) {
                 }
                 Spacer(Modifier.width(4.dp))
                 TextButton(onClick = { viewModel.toggleShowRawChatMessage() }) {
-                    Text(if (showRaw) "可读" else "原文", style = MaterialTheme.typography.labelSmall)
+                    Text(if (showRaw) stringResource(R.string.main_readable) else stringResource(R.string.main_raw), style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
         }
         if (!operatorConnected) {
             Text(
-                "请先在「连接状态」中连接 Gateway（将同时建立 Node + Operator 连接）后再发送消息。",
+                stringResource(R.string.main_connect_gateway_first),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
@@ -498,7 +583,7 @@ private fun ChatTabContent(viewModel: MainViewModel) {
                     modifier = Modifier.weight(1f).padding(end = 8.dp)
                 )
                 Text(
-                    "获取中…",
+                    stringResource(R.string.main_loading),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -542,7 +627,7 @@ private fun ChatTabContent(viewModel: MainViewModel) {
                             onLongClick = {
                                 if (toCopy.isNotEmpty()) {
                                     (context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager)?.setPrimaryClip(ClipData.newPlainText(null, toCopy))
-                                    Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.common_copied), Toast.LENGTH_SHORT).show()
                                 }
                             }
                         ),
@@ -606,7 +691,7 @@ private fun ChatTabContent(viewModel: MainViewModel) {
         HorizontalDivider()
         if (attachmentsLoading) {
             Text(
-                "附件加载中…",
+                stringResource(R.string.main_attachment_loading),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -658,21 +743,21 @@ private fun ChatTabContent(viewModel: MainViewModel) {
                     enabled = !chatBusy && operatorConnected && chatAttachments.size < MAX_CHAT_ATTACHMENTS,
                     modifier = Modifier.size(36.dp)
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = "添加附件", modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.main_add_attachment), modifier = Modifier.size(20.dp))
                 }
                 DropdownMenu(
                     expanded = attachMenuExpanded,
                     onDismissRequest = { attachMenuExpanded = false }
                 ) {
                     DropdownMenuItem(
-                        text = { Text("上传图片") },
+                        text = { Text(stringResource(R.string.main_upload_image)) },
                         onClick = {
                             pickImageLauncher.launch("image/*")
                             attachMenuExpanded = false
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("上传附件") },
+                        text = { Text(stringResource(R.string.main_upload_file)) },
                         onClick = {
                             pickFileLauncher.launch("*/*")
                             attachMenuExpanded = false
@@ -687,7 +772,7 @@ private fun ChatTabContent(viewModel: MainViewModel) {
                     .weight(1f)
                     .heightIn(min = 40.dp, max = 84.dp)
                     .onFocusChanged { chatInputFocused = it.isFocused },
-                placeholder = { Text("输入消息…", style = MaterialTheme.typography.bodySmall) },
+                placeholder = { Text(stringResource(R.string.main_input_placeholder), style = MaterialTheme.typography.bodySmall) },
                 enabled = true,
                 singleLine = false,
                 minLines = 1,
@@ -708,7 +793,7 @@ private fun ChatTabContent(viewModel: MainViewModel) {
                 enabled = (inputText.isNotBlank() || chatAttachments.isNotEmpty()) && !attachmentsLoading && !chatBusy && operatorConnected,
                 modifier = Modifier.size(36.dp)
             ) {
-                Icon(Icons.Default.Send, contentDescription = "发送", modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.Send, contentDescription = stringResource(R.string.main_send), modifier = Modifier.size(20.dp))
             }
         }
     }
@@ -743,7 +828,7 @@ private fun ConnectionTabContent(viewModel: MainViewModel) {
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        SectionTitle(title = "连接状态")
+        SectionTitle(title = stringResource(R.string.main_connection_status))
         Spacer(modifier = Modifier.height(8.dp))
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -753,23 +838,23 @@ private fun ConnectionTabContent(viewModel: MainViewModel) {
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("SSH 隧道", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Text(stringResource(R.string.main_ssh_tunnel), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                     StatusChip(ready = isSshConnected)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
                     SmallCircleCheckbox(checked = autoReconnectSsh, onCheckedChange = { autoReconnectSsh = it; AppPrefs.setAutoReconnectSsh(it) })
                     Spacer(Modifier.width(6.dp))
-                    Text("自动重连", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.main_auto_reconnect), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Text("${if (isSshConnected) "已连接" else "未连接"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
+                Text(if (isSshConnected) stringResource(R.string.common_connected) else stringResource(R.string.common_disconnected), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (isSshConnected) {
-                        OutlinedButton(onClick = { viewModel.disconnectSsh() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text("断开") }
+                        OutlinedButton(onClick = { viewModel.disconnectSsh() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.common_disconnect)) }
                     } else {
-                        Button(onClick = { viewModel.connectSsh() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text("连接") }
+                        Button(onClick = { viewModel.connectSsh() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.common_connect)) }
                     }
-                    OutlinedButton(onClick = { context.startActivity(Intent(context, SshTunnelActivity::class.java)) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text("SSH 设置") }
+                    OutlinedButton(onClick = { context.startActivity(Intent(context, SshTunnelActivity::class.java)) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.main_ssh_settings)) }
                 }
             }
         }
@@ -788,15 +873,15 @@ private fun ConnectionTabContent(viewModel: MainViewModel) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
                     SmallCircleCheckbox(checked = autoReconnectNode, onCheckedChange = { autoReconnectNode = it; AppPrefs.setAutoReconnectNode(it) })
                     Spacer(Modifier.width(6.dp))
-                    Text("自动重连", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.main_auto_reconnect), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text(
                     when {
-                        connectionState is GatewayConnection.ConnectionState.Connected && nodeHandshakeDone -> "已连接（Gateway 已注册）"
-                        connectionState is GatewayConnection.ConnectionState.Connected && !nodeHandshakeDone -> "已连接（等待 Gateway 注册…）"
-                        connectionState is GatewayConnection.ConnectionState.Connecting -> "连接中…"
-                        connectionState is GatewayConnection.ConnectionState.Error -> "连接失败"
-                        else -> "未连接"
+                        connectionState is GatewayConnection.ConnectionState.Connected && nodeHandshakeDone -> stringResource(R.string.main_gateway_connected_registered)
+                        connectionState is GatewayConnection.ConnectionState.Connected && !nodeHandshakeDone -> stringResource(R.string.main_gateway_connected_waiting)
+                        connectionState is GatewayConnection.ConnectionState.Connecting -> stringResource(R.string.common_connecting)
+                        connectionState is GatewayConnection.ConnectionState.Error -> stringResource(R.string.main_gateway_connect_failed)
+                        else -> stringResource(R.string.common_disconnected)
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -805,14 +890,16 @@ private fun ConnectionTabContent(viewModel: MainViewModel) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (connectionState is GatewayConnection.ConnectionState.Connected) {
-                        OutlinedButton(onClick = { viewModel.disconnectGateway() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text("断开") }
+                        OutlinedButton(onClick = { viewModel.disconnectGateway() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.common_disconnect)) }
                     } else {
-                        Button(onClick = { viewModel.connectGateway() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text("连接") }
+                        Button(onClick = { viewModel.connectGateway() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.common_connect)) }
                     }
-                    OutlinedButton(onClick = { context.startActivity(Intent(context, GatewaySettingsActivity::class.java)) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text("Node 设置") }
+                    OutlinedButton(onClick = { context.startActivity(Intent(context, GatewaySettingsActivity::class.java)) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.main_node_settings)) }
                 }
             }
         }
+        Spacer(modifier = Modifier.height(12.dp))
+        NodeLinkMethodsCard(context = context, viewModel = viewModel)
         Spacer(modifier = Modifier.height(12.dp))
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -822,15 +909,15 @@ private fun ConnectionTabContent(viewModel: MainViewModel) {
         ) {
             Row(modifier = Modifier.fillMaxWidth().padding(20.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("HTTP 服务", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                    Text("端口 ${httpPort ?: 8765}，Tailscale 可访问", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.main_http_service), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Text(stringResource(R.string.main_http_port_tailscale, httpPort ?: 8765), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Switch(checked = httpServiceEnabled, onCheckedChange = { viewModel.setHttpServiceEnabled(it) })
             }
         }
         Spacer(modifier = Modifier.height(8.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("本机 IP: ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.main_local_ip), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (localIpAddress.isNotEmpty()) {
                 Text(
                     localIpAddress,
@@ -838,7 +925,7 @@ private fun ConnectionTabContent(viewModel: MainViewModel) {
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.clickable {
                         (context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager)?.setPrimaryClip(ClipData.newPlainText(null, localIpAddress))
-                        Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.common_copied), Toast.LENGTH_SHORT).show()
                     }
                 )
             } else {
@@ -852,15 +939,15 @@ private fun ConnectionTabContent(viewModel: MainViewModel) {
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.clickable {
                         (context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager)?.setPrimaryClip(ClipData.newPlainText(null, tailscaleIpAddress))
-                        Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.common_copied), Toast.LENGTH_SHORT).show()
                     }
                 )
             }
         }
         Spacer(modifier = Modifier.height(8.dp))
-        Text("建议省电配置使用 无限制，即可在后台持续使用。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(stringResource(R.string.main_battery_tip), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(modifier = Modifier.height(20.dp))
-        SectionTitle(title = "执行日志")
+        SectionTitle(title = stringResource(R.string.main_command_log))
         Spacer(modifier = Modifier.height(8.dp))
         Card(
             modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 400.dp),
@@ -869,9 +956,9 @@ private fun ConnectionTabContent(viewModel: MainViewModel) {
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                Text("ADB / WebSocket / HTTP 命令记录", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
+                Text(stringResource(R.string.main_command_log_subtitle), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
                 if (logEntries.isEmpty()) {
-                    Text("暂无记录", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(20.dp))
+                    Text(stringResource(R.string.main_no_logs), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(20.dp))
                 } else {
                     LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(logEntries.reversed()) { entry ->
@@ -975,50 +1062,89 @@ private fun SettingsTabContent(viewModel: MainViewModel) {
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
         AppPrefs.init(context)
-        SectionTitle(title = "行为与显示")
+        SectionTitle(title = stringResource(R.string.main_behavior_display))
         Spacer(modifier = Modifier.height(8.dp))
         Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Column(modifier = Modifier.padding(20.dp)) {
+                var languageMenuExpanded by remember { mutableStateOf(false) }
+                val currentLang = MainPrefs.getAppLanguage()
+                val languageLabel = when (currentLang) {
+                    "zh" -> stringResource(R.string.language_zh)
+                    "en" -> stringResource(R.string.language_en)
+                    else -> stringResource(R.string.language_system)
+                }
+                Box {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { languageMenuExpanded = true }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(stringResource(R.string.main_language), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                            Text(stringResource(R.string.language_switch_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Text(languageLabel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Default.ExpandMore, contentDescription = null, modifier = Modifier.size(20.dp))
+                    }
+                    DropdownMenu(expanded = languageMenuExpanded, onDismissRequest = { languageMenuExpanded = false }) {
+                        listOf("system" to R.string.language_system, "zh" to R.string.language_zh, "en" to R.string.language_en).forEach { (tag, labelRes) ->
+                            DropdownMenuItem(
+                                text = { Text(stringResource(labelRes)) },
+                                onClick = {
+                                    languageMenuExpanded = false
+                                    if (tag != currentLang) {
+                                        MainPrefs.setAppLanguage(tag)
+                                        (context as? android.app.Activity)?.recreate()
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+                HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 var persistentNotification by remember { mutableStateOf(AppPrefs.getPersistentNotification()) }
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("常驻通知", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                        Text("Gateway 连接时状态栏通知（不影响推送通知）", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.main_persistent_notification), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                        Text(stringResource(R.string.main_persistent_notification_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(checked = persistentNotification, onCheckedChange = { persistentNotification = it; AppPrefs.setPersistentNotification(it) })
                 }
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 var reconnectInterval by remember { mutableStateOf(AppPrefs.getReconnectCheckInterval()) }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("重连检查间隔", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f, fill = false))
+                    Text(stringResource(R.string.main_reconnect_interval), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f, fill = false))
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         ReconnectCheckInterval.entries.forEach { opt ->
                             val sec = (opt.delayMs / 1000).toInt()
-                            FilterChip(selected = reconnectInterval == opt, onClick = { reconnectInterval = opt; AppPrefs.setReconnectCheckInterval(opt) }, label = { Text("${sec}秒", style = MaterialTheme.typography.labelSmall) })
+                            FilterChip(selected = reconnectInterval == opt, onClick = { reconnectInterval = opt; AppPrefs.setReconnectCheckInterval(opt) }, label = { Text(stringResource(R.string.main_seconds, sec), style = MaterialTheme.typography.labelSmall) })
                         }
                     }
                 }
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 var chatRefreshInterval by remember { mutableStateOf(AppPrefs.getChatRefreshInterval()) }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("对话拉取间隔", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f, fill = false))
+                    Text(stringResource(R.string.main_chat_refresh_interval), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f, fill = false))
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.horizontalScroll(rememberScrollState())) {
                         ChatRefreshInterval.entries.forEach { opt ->
                             val sec = (opt.delayMs / 1000).toInt()
-                            FilterChip(selected = chatRefreshInterval == opt, onClick = { chatRefreshInterval = opt; AppPrefs.setChatRefreshInterval(opt) }, label = { Text("${sec}秒", style = MaterialTheme.typography.labelSmall) })
+                            FilterChip(selected = chatRefreshInterval == opt, onClick = { chatRefreshInterval = opt; AppPrefs.setChatRefreshInterval(opt) }, label = { Text(stringResource(R.string.main_seconds, sec), style = MaterialTheme.typography.labelSmall) })
                         }
                     }
                 }
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 var chatFontSize by remember { mutableStateOf(AppPrefs.getChatFontSize()) }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("对话字号", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f, fill = false))
+                    Text(stringResource(R.string.main_chat_font_size), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f, fill = false))
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         ChatFontSize.entries.forEach { opt ->
                             val label = when (opt) {
-                                ChatFontSize.LARGE -> "大"
-                                ChatFontSize.MEDIUM -> "中"
-                                ChatFontSize.SMALL -> "小"
+                                ChatFontSize.LARGE -> stringResource(R.string.chat_font_large)
+                                ChatFontSize.MEDIUM -> stringResource(R.string.chat_font_medium)
+                                ChatFontSize.SMALL -> stringResource(R.string.chat_font_small)
                             }
                             FilterChip(selected = chatFontSize == opt, onClick = { chatFontSize = opt; AppPrefs.setChatFontSize(opt) }, label = { Text(label, style = MaterialTheme.typography.labelSmall) })
                         }
@@ -1027,13 +1153,13 @@ private fun SettingsTabContent(viewModel: MainViewModel) {
             }
         }
         Spacer(modifier = Modifier.height(20.dp))
-        SectionTitle(title = "权限类设置")
+        SectionTitle(title = stringResource(R.string.main_permission_settings))
         Spacer(modifier = Modifier.height(8.dp))
         Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Column(modifier = Modifier.padding(20.dp)) {
                 key(permissionRefreshTick) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("无障碍服务", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                        Text(stringResource(R.string.main_accessibility_service), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.weight(1f))
                         Box(Modifier.clickable { viewModel.openAccessibilitySettings() }.minimumInteractiveComponentSize()) {
                             StatusChip(ready = isAccessibilityEnabled)
@@ -1041,12 +1167,12 @@ private fun SettingsTabContent(viewModel: MainViewModel) {
                     }
                     HorizontalDivider(Modifier.padding(vertical = 12.dp))
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("ClawPaw 输入法", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                        Text(stringResource(R.string.main_input_method), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                         IconButton(
                             onClick = { showImeTipDialog = true },
                             modifier = Modifier.size(20.dp)
                         ) {
-                            Icon(Icons.Default.Info, contentDescription = "说明", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(Icons.Default.Info, contentDescription = stringResource(R.string.main_info), modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Spacer(Modifier.weight(1f))
                         Box(Modifier.clickable { viewModel.openInputMethodSettings() }.minimumInteractiveComponentSize()) {
@@ -1054,37 +1180,37 @@ private fun SettingsTabContent(viewModel: MainViewModel) {
                         }
                     }
                     HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                    PermissionSettingRow(context = context, permission = Manifest.permission.ACCESS_FINE_LOCATION, label = "定位", desc = "获取信息", onRequestPermission = { locationLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) })
+                    PermissionSettingRow(context = context, permission = Manifest.permission.ACCESS_FINE_LOCATION, label = stringResource(R.string.main_location), desc = stringResource(R.string.main_location_desc), onRequestPermission = { locationLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) })
                     HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                    PermissionSettingRow(context = context, permission = Manifest.permission.CAMERA, label = "相机", desc = "拍照/录像", onRequestPermission = { cameraLauncher.launch(Manifest.permission.CAMERA) })
+                    PermissionSettingRow(context = context, permission = Manifest.permission.CAMERA, label = stringResource(R.string.main_camera), desc = stringResource(R.string.main_camera_desc), onRequestPermission = { cameraLauncher.launch(Manifest.permission.CAMERA) })
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                        PermissionSettingRow(context = context, permission = Manifest.permission.POST_NOTIFICATIONS, label = "通知", desc = "调试与提醒", onRequestPermission = { notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) })
+                        PermissionSettingRow(context = context, permission = Manifest.permission.POST_NOTIFICATIONS, label = stringResource(R.string.main_notification), desc = stringResource(R.string.main_notification_desc), onRequestPermission = { notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) })
                     }
                     HorizontalDivider(Modifier.padding(vertical = 12.dp))
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("通知监听", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                            Text("获取通知列表（需在系统设置中开启）", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.main_notification_listener), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                            Text(stringResource(R.string.main_notification_listener_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         if (notificationListenerEnabled) {
-                            Text("已开启", style = MaterialTheme.typography.labelSmall, color = clawpaw_primary)
+                            Text(stringResource(R.string.main_enabled), style = MaterialTheme.typography.labelSmall, color = clawpaw_primary)
                         } else {
                             OutlinedButton(
                                 onClick = { viewModel.openNotificationListenerSettings() },
                                 shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier.height(36.dp)
-                            ) { Text("去授权") }
+                            ) { Text(stringResource(R.string.common_go_auth)) }
                         }
                     }
                     HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                    PermissionSettingRow(context = context, permission = Manifest.permission.READ_CALENDAR, label = "日历", desc = "读取日历事件", onRequestPermission = { calendarLauncher.launch(Manifest.permission.READ_CALENDAR) })
+                    PermissionSettingRow(context = context, permission = Manifest.permission.READ_CALENDAR, label = stringResource(R.string.main_calendar), desc = stringResource(R.string.main_calendar_desc), onRequestPermission = { calendarLauncher.launch(Manifest.permission.READ_CALENDAR) })
                     HorizontalDivider(Modifier.padding(vertical = 12.dp))
                     PermissionSettingRow(
                         context = context,
                         permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE,
-                        label = "照片/存储",
-                        desc = "读取照片与文件",
+                        label = stringResource(R.string.main_photos_storage),
+                        desc = stringResource(R.string.main_photos_storage_desc),
                         onRequestPermission = {
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) storageLauncher.launch(Manifest.permission.READ_MEDIA_IMAGES)
                             else storageLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
@@ -1092,31 +1218,31 @@ private fun SettingsTabContent(viewModel: MainViewModel) {
                     )
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                        PermissionSettingRow(context = context, permission = Manifest.permission.ACTIVITY_RECOGNITION, label = "运动/步数", desc = "传感器步数", onRequestPermission = { activityRecognitionLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION) })
+                        PermissionSettingRow(context = context, permission = Manifest.permission.ACTIVITY_RECOGNITION, label = stringResource(R.string.main_activity_recognition), desc = stringResource(R.string.main_activity_recognition_desc), onRequestPermission = { activityRecognitionLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION) })
                     }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                        PermissionSettingRow(context = context, permission = Manifest.permission.BLUETOOTH_CONNECT, label = "蓝牙", desc = "附近设备列表", onRequestPermission = { bluetoothLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT) })
+                        PermissionSettingRow(context = context, permission = Manifest.permission.BLUETOOTH_CONNECT, label = stringResource(R.string.main_bluetooth), desc = stringResource(R.string.main_bluetooth_desc), onRequestPermission = { bluetoothLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT) })
                     }
                     HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                    PermissionSettingRow(context = context, permission = Manifest.permission.READ_CONTACTS, label = "联系人", desc = "读取联系人", onRequestPermission = { contactsLauncher.launch(Manifest.permission.READ_CONTACTS) })
+                    PermissionSettingRow(context = context, permission = Manifest.permission.READ_CONTACTS, label = stringResource(R.string.main_contacts), desc = stringResource(R.string.main_contacts_desc), onRequestPermission = { contactsLauncher.launch(Manifest.permission.READ_CONTACTS) })
                     HorizontalDivider(Modifier.padding(vertical = 12.dp))
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("短信", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                            Text("读取与发送短信", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.main_sms), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                            Text(stringResource(R.string.main_sms_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        if (smsGranted) Text("已授权", style = MaterialTheme.typography.labelSmall, color = clawpaw_primary)
-                        else OutlinedButton(onClick = { smsLauncher.launch(arrayOf(Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS)) }, shape = RoundedCornerShape(10.dp), modifier = Modifier.height(36.dp)) { Text("去授权") }
+                        if (smsGranted) Text(stringResource(R.string.main_permission_granted), style = MaterialTheme.typography.labelSmall, color = clawpaw_primary)
+                        else OutlinedButton(onClick = { smsLauncher.launch(arrayOf(Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS)) }, shape = RoundedCornerShape(10.dp), modifier = Modifier.height(36.dp)) { Text(stringResource(R.string.common_go_auth)) }
                     }
                     HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                    PermissionSettingRow(context = context, permission = Manifest.permission.CALL_PHONE, label = "电话", desc = "拨打电话", onRequestPermission = { phoneLauncher.launch(Manifest.permission.CALL_PHONE) })
+                    PermissionSettingRow(context = context, permission = Manifest.permission.CALL_PHONE, label = stringResource(R.string.main_phone), desc = stringResource(R.string.main_phone_desc), onRequestPermission = { phoneLauncher.launch(Manifest.permission.CALL_PHONE) })
                 }
             }
         }
         Spacer(modifier = Modifier.height(20.dp))
         OutlinedButton(onClick = { viewModel.openAppSettings() }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp)) {
-            Text("应用详情与权限")
+            Text(stringResource(R.string.main_app_detail_permission))
         }
     }
 
@@ -1127,10 +1253,10 @@ private fun SettingsTabContent(viewModel: MainViewModel) {
             containerColor = MaterialTheme.colorScheme.surface,
             titleContentColor = MaterialTheme.colorScheme.onSurface,
             textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            title = { Text("不开启无障碍会影响哪些功能？", style = MaterialTheme.typography.titleLarge) },
+            title = { Text(stringResource(R.string.main_accessibility_dialog_title), style = MaterialTheme.typography.titleLarge) },
             text = {
                 Text(
-                    "未开启时，以下功能均不可用：\n\n• OpenClaw 远程控制（点击、滑动、长按、输入文字、获取界面布局等）\n• 通过 ADB / HTTP 执行的界面操作\n\n开启后本机可作为 OpenClaw 节点被电脑端控制。",
+                    stringResource(R.string.main_accessibility_dialog_text),
                     style = MaterialTheme.typography.bodyMedium
                 )
             },
@@ -1138,11 +1264,11 @@ private fun SettingsTabContent(viewModel: MainViewModel) {
                 Button(
                     onClick = { showAccessibilityDialog = false; viewModel.openAccessibilitySettings() },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                ) { Text("去设置") }
+                ) { Text(stringResource(R.string.common_go_settings)) }
             },
             dismissButton = {
                 TextButton(onClick = { showAccessibilityDialog = false }) {
-                    Text("关闭", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.common_close), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         )
@@ -1154,10 +1280,10 @@ private fun SettingsTabContent(viewModel: MainViewModel) {
             containerColor = MaterialTheme.colorScheme.surface,
             titleContentColor = MaterialTheme.colorScheme.onSurface,
             textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            title = { Text("ClawPaw 输入法", style = MaterialTheme.typography.titleLarge) },
+            title = { Text(stringResource(R.string.main_ime_dialog_title), style = MaterialTheme.typography.titleLarge) },
             text = {
                 Text(
-                    "在无障碍输入失败的情况下，可将 ClawPaw 设为默认输入法，作为备用输入方式。",
+                    stringResource(R.string.main_ime_dialog_text),
                     style = MaterialTheme.typography.bodyMedium
                 )
             },
@@ -1165,7 +1291,7 @@ private fun SettingsTabContent(viewModel: MainViewModel) {
                 Button(
                     onClick = { showImeTipDialog = false },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                ) { Text("知道了") }
+                ) { Text(stringResource(R.string.common_got_it)) }
             }
         )
     }
@@ -1186,13 +1312,13 @@ private fun PermissionSettingRow(
             Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (granted) {
-            Text("已授权", style = MaterialTheme.typography.labelSmall, color = clawpaw_primary)
+            Text(stringResource(R.string.main_permission_granted), style = MaterialTheme.typography.labelSmall, color = clawpaw_primary)
         } else {
             OutlinedButton(
                 onClick = onRequestPermission,
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.height(36.dp)
-            ) { Text("去授权") }
+            ) { Text(stringResource(R.string.common_go_auth)) }
         }
     }
 }
@@ -1205,25 +1331,25 @@ private fun AuthGuideDialog(onDismiss: () -> Unit, viewModel: MainViewModel) {
         containerColor = MaterialTheme.colorScheme.surface,
         titleContentColor = MaterialTheme.colorScheme.onSurface,
         textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        title = { Text("系统授权", style = MaterialTheme.typography.titleLarge) },
+        title = { Text(stringResource(R.string.main_auth_guide_title), style = MaterialTheme.typography.titleLarge) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("为完整使用节点能力，建议授予以下权限：", style = MaterialTheme.typography.bodyMedium)
-                Text("• 获取信息：定位、WiFi 状态", style = MaterialTheme.typography.bodySmall)
-                Text("• 相机：拍照、录像", style = MaterialTheme.typography.bodySmall)
-                Text("• 通知：调试与提醒", style = MaterialTheme.typography.bodySmall)
-                Text("• 无障碍：远程操作手机（若需）", style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.main_auth_guide_text), style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.main_auth_guide_location), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.main_auth_guide_camera), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.main_auth_guide_notification), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.main_auth_guide_accessibility), style = MaterialTheme.typography.bodySmall)
             }
         },
         confirmButton = {
             Button(
                 onClick = { viewModel.openAppSettings(); onDismiss() },
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-            ) { Text("去设置") }
+            ) { Text(stringResource(R.string.common_go_settings)) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("稍后", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.common_later), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     )
@@ -1235,7 +1361,7 @@ private fun PairingRequiredDialog(onDismiss: () -> Unit, context: Context) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
     fun copyAndToast(text: String) {
         clipboard?.setPrimaryClip(ClipData.newPlainText(null, text))
-        Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, context.getString(R.string.common_copied), Toast.LENGTH_SHORT).show()
     }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1243,7 +1369,7 @@ private fun PairingRequiredDialog(onDismiss: () -> Unit, context: Context) {
         containerColor = MaterialTheme.colorScheme.surface,
         titleContentColor = MaterialTheme.colorScheme.onSurface,
         textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        title = { Text("需要完成配对", style = MaterialTheme.typography.titleLarge) },
+        title = { Text(stringResource(R.string.main_pairing_title), style = MaterialTheme.typography.titleLarge) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Surface(
@@ -1272,14 +1398,14 @@ private fun PairingRequiredDialog(onDismiss: () -> Unit, context: Context) {
                             .fillMaxWidth()
                             .clickable { copyAndToast(deviceId) }
                     ) {
-                        Text("本机 deviceId: $deviceId", style = MaterialTheme.typography.bodySmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(12.dp))
+                        Text(stringResource(R.string.main_pairing_device_id, deviceId), style = MaterialTheme.typography.bodySmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(12.dp))
                     }
                 }
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("知道了", color = MaterialTheme.colorScheme.primary)
+                Text(stringResource(R.string.common_got_it), color = MaterialTheme.colorScheme.primary)
             }
         }
     )

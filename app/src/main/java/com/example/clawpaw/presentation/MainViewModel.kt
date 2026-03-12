@@ -618,6 +618,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = UiState.Success("Gateway Token 已保存")
     }
 
+    fun updateGatewayPort(port: Int) {
+        RetrofitClient.setGatewayPort(port.coerceIn(1, 65535))
+    }
+
     fun connectGateway() {
         val host = RetrofitClient.serverHost.value
         if (host.isBlank()) {

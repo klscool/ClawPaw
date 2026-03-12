@@ -1,7 +1,6 @@
 package com.example.clawpaw.presentation
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.*
@@ -29,15 +28,17 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.clawpaw.R
 import com.example.clawpaw.ssh.PortMapping
 import com.example.clawpaw.ssh.ReversePortMapping
 import com.example.clawpaw.ssh.SshTunnelConfig
 import com.example.clawpaw.ssh.SshTunnelViewModel
 import com.example.clawpaw.ui.theme.ClawPawTheme
 
-class SshTunnelActivity : ComponentActivity() {
+class SshTunnelActivity : LocaleAwareActivity() {
     private val viewModel: SshTunnelViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -76,7 +77,7 @@ fun SshTunnelScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text("SSH / 隧道配置", style = MaterialTheme.typography.titleLarge) },
+            title = { Text(stringResource(R.string.ssh_title), style = MaterialTheme.typography.titleLarge) },
             colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = MaterialTheme.colorScheme.background,
                 titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -84,7 +85,7 @@ fun SshTunnelScreen(
             ),
             navigationIcon = {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                 }
             }
         )
@@ -103,12 +104,12 @@ fun SshTunnelScreen(
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
-                    Text("SSH 连接配置", style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.ssh_config), style = MaterialTheme.typography.titleMedium)
                     Spacer(modifier = Modifier.height(12.dp))
                     OutlinedTextField(
                         value = host,
                         onValueChange = { host = it },
-                        label = { Text("地址 (host)") },
+                        label = { Text(stringResource(R.string.ssh_address)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -116,7 +117,7 @@ fun SshTunnelScreen(
                     OutlinedTextField(
                         value = portStr,
                         onValueChange = { s -> if (s.isEmpty() || s.all { c -> c.isDigit() }) portStr = s },
-                        label = { Text("端口") },
+                        label = { Text(stringResource(R.string.common_port)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -124,7 +125,7 @@ fun SshTunnelScreen(
                     OutlinedTextField(
                         value = username,
                         onValueChange = { username = it },
-                        label = { Text("用户名") },
+                        label = { Text(stringResource(R.string.ssh_username)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -132,21 +133,21 @@ fun SshTunnelScreen(
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it },
-                        label = { Text("密码") },
+                        label = { Text(stringResource(R.string.ssh_password)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     TextButton(onClick = { showProxy = !showProxy }) {
                         Text(
-                            text = if (showProxy) "收起代理设置" else "代理（可选）— 经本地 SOCKS5 端口连接",
+                            text = if (showProxy) stringResource(R.string.ssh_proxy_collapse) else stringResource(R.string.ssh_proxy_optional),
                             color = MaterialTheme.colorScheme.secondary
                         )
                     }
                     if (showProxy) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "经本地 SOCKS5 代理连接，等同 ssh -o ProxyCommand=nc -X 5 -x 主机:端口",
+                            stringResource(R.string.ssh_proxy_hint),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -154,8 +155,8 @@ fun SshTunnelScreen(
                         OutlinedTextField(
                             value = proxyHost,
                             onValueChange = { proxyHost = it },
-                            label = { Text("代理主机") },
-                            placeholder = { Text("127.0.0.1") },
+                            label = { Text(stringResource(R.string.ssh_proxy_host)) },
+                            placeholder = { Text(stringResource(R.string.ssh_proxy_host_placeholder)) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -163,8 +164,8 @@ fun SshTunnelScreen(
                         OutlinedTextField(
                             value = proxyPortStr,
                             onValueChange = { s -> if (s.isEmpty() || s.all { c -> c.isDigit() }) proxyPortStr = s },
-                            label = { Text("代理端口（0 或留空=不使用）") },
-                            placeholder = { Text("7890") },
+                            label = { Text(stringResource(R.string.ssh_proxy_port)) },
+                            placeholder = { Text(stringResource(R.string.ssh_proxy_port_placeholder)) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -187,7 +188,7 @@ fun SshTunnelScreen(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("保存配置")
+                        Text(stringResource(R.string.common_save))
                     }
                 }
             }
@@ -202,9 +203,9 @@ fun SshTunnelScreen(
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
-                    Text("正向：本地 → 远程", style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.ssh_forward_title), style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "访问本机 localhost:本地端口 即转发到 SSH 服务器上的 远程主机:远程端口。",
+                        stringResource(R.string.ssh_forward_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -220,7 +221,7 @@ fun SshTunnelScreen(
                                 modifier = Modifier.weight(1f)
                             )
                             IconButton(onClick = { viewModel.removeMappingAt(index) }) {
-                                Icon(Icons.Default.Delete, contentDescription = "删除")
+                                Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.common_delete))
                             }
                         }
                         Spacer(modifier = Modifier.height(4.dp))
@@ -235,21 +236,21 @@ fun SshTunnelScreen(
                         OutlinedTextField(
                             value = localPort,
                             onValueChange = { localPort = it },
-                            label = { Text("本地端口") },
+                            label = { Text(stringResource(R.string.ssh_local_port)) },
                             modifier = Modifier.weight(1f)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         OutlinedTextField(
                             value = remoteHost,
                             onValueChange = { remoteHost = it },
-                            label = { Text("远程主机") },
+                            label = { Text(stringResource(R.string.ssh_remote_host)) },
                             modifier = Modifier.weight(1f)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         OutlinedTextField(
                             value = remotePort,
                             onValueChange = { remotePort = it },
-                            label = { Text("远程端口") },
+                            label = { Text(stringResource(R.string.ssh_remote_port)) },
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -269,7 +270,7 @@ fun SshTunnelScreen(
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("添加正向映射")
+                        Text(stringResource(R.string.ssh_add_forward))
                     }
                 }
             }
@@ -284,9 +285,9 @@ fun SshTunnelScreen(
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
-                    Text("反向：远程 → 本机", style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.ssh_reverse_title), style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "访问 SSH 服务器上的远程端口即转发到本机 主机:端口。",
+                        stringResource(R.string.ssh_reverse_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -302,7 +303,7 @@ fun SshTunnelScreen(
                                 modifier = Modifier.weight(1f)
                             )
                             IconButton(onClick = { viewModel.removeReverseMappingAt(index) }) {
-                                Icon(Icons.Default.Delete, contentDescription = "删除")
+                                Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.common_delete))
                             }
                         }
                         Spacer(modifier = Modifier.height(4.dp))
@@ -317,21 +318,21 @@ fun SshTunnelScreen(
                         OutlinedTextField(
                             value = revRemotePort,
                             onValueChange = { s -> if (s.isEmpty() || s.all { c -> c.isDigit() }) revRemotePort = s },
-                            label = { Text("服务器端口") },
+                            label = { Text(stringResource(R.string.ssh_server_port)) },
                             modifier = Modifier.weight(1f)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         OutlinedTextField(
                             value = revLocalHost,
                             onValueChange = { revLocalHost = it },
-                            label = { Text("本机主机") },
+                            label = { Text(stringResource(R.string.ssh_local_host)) },
                             modifier = Modifier.weight(1f)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         OutlinedTextField(
                             value = revLocalPort,
                             onValueChange = { s -> if (s.isEmpty() || s.all { c -> c.isDigit() }) revLocalPort = s },
-                            label = { Text("本机端口") },
+                            label = { Text(stringResource(R.string.ssh_local_port_label)) },
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -353,7 +354,7 @@ fun SshTunnelScreen(
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("添加反向映射")
+                        Text(stringResource(R.string.ssh_add_reverse))
                     }
                 }
             }

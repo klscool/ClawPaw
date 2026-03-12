@@ -104,7 +104,6 @@ object GatewayProtocol {
                 service.back()
                 Result.success(true)
             }
-            "open_amap" -> Result.success(service.openAMap())
             "open_schema" -> {
                 val schema = params.optString("schema", params.optString("uri", ""))
                 if (schema.isBlank()) Result.failure(IllegalArgumentException("open_schema 需要 schema 或 uri 参数"))
