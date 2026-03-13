@@ -110,15 +110,6 @@ class CommandReceiver : BroadcastReceiver() {
                             setResultData(result)
                             return
                         }
-                        "get_battery" -> {
-                            val pct = PhoneStateHelper.getBatteryPercent(context)
-                            val result = if (pct >= 0) "$pct%" else "未知"
-                            Logger.op(TAG, "电量: $result")
-                            showToast(context, "电量: $result")
-                            setResultCode(RESULT_OK)
-                            setResultData(if (pct >= 0) pct.toString() else "")
-                            return
-                        }
                         "get_state" -> {
                             val result = PhoneStateHelper.getStateSnapshot(context)
                             Logger.op(TAG, "状态: $result")

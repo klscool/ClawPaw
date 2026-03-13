@@ -85,7 +85,7 @@ class NodeHttpServer(
                     put("back"); put("open_schema")
                 })
                 put("状态", org.json.JSONArray().apply {
-                    put("location_get"); put("get_wifi_name"); put("get_screen_state"); put("get_battery"); put("get_state"); put("device_status"); put("device_info")
+                    put("location_get"); put("get_wifi_name"); put("get_screen_state"); put("get_state"); put("device_status"); put("device_info")
                 })
                 put("硬件", org.json.JSONArray().apply {
                     put("vibrate"); put("camera_rear"); put("camera_front"); put("screen_on")
@@ -110,7 +110,6 @@ class NodeHttpServer(
                 put(entry("device_info", "设备信息", """{"action":"device_info"}"""))
                 put(entry("get_wifi_name", "当前 WiFi 名称", """{"action":"get_wifi_name"}"""))
                 put(entry("get_screen_state", "屏幕亮/灭 on|off", """{"action":"get_screen_state"}"""))
-                put(entry("get_battery", "电量百分比 0-100", """{"action":"get_battery"}"""))
                 put(entry("get_state", "一次返回：定位+WiFi+屏幕+电量", """{"action":"get_state"}"""))
                 // 硬件（不依赖无障碍）
                 put(entry("vibrate", "震动，可选 duration_ms", """{"action":"vibrate"}""", """{"action":"vibrate","duration_ms":500}"""))
@@ -182,11 +181,6 @@ class NodeHttpServer(
                 com.example.clawpaw.data.storage.DebugPrefs.showCommandToastIfEnabled(appContext, action)
                 val on = PhoneStateHelper.getScreenOn(appContext)
                 return json(200, JSONObject().put("success", true).put("result", if (on) "on" else "off"))
-            }
-            "get_battery" -> {
-                com.example.clawpaw.data.storage.DebugPrefs.showCommandToastIfEnabled(appContext, action)
-                val pct = PhoneStateHelper.getBatteryPercent(appContext)
-                return json(200, JSONObject().put("success", true).put("result", pct))
             }
             "get_state" -> {
                 com.example.clawpaw.data.storage.DebugPrefs.showCommandToastIfEnabled(appContext, action)

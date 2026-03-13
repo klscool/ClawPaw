@@ -8,9 +8,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -85,7 +85,7 @@ fun SshTunnelScreen(
             ),
             navigationIcon = {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
+                    Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.common_back))
                 }
             }
         )
@@ -221,7 +221,7 @@ fun SshTunnelScreen(
                                 modifier = Modifier.weight(1f)
                             )
                             IconButton(onClick = { viewModel.removeMappingAt(index) }) {
-                                Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.common_delete))
+                                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.common_delete))
                             }
                         }
                         Spacer(modifier = Modifier.height(4.dp))
@@ -303,7 +303,7 @@ fun SshTunnelScreen(
                                 modifier = Modifier.weight(1f)
                             )
                             IconButton(onClick = { viewModel.removeReverseMappingAt(index) }) {
-                                Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.common_delete))
+                                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.common_delete))
                             }
                         }
                         Spacer(modifier = Modifier.height(4.dp))

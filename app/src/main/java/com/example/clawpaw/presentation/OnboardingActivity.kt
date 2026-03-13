@@ -19,18 +19,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Chat
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.RadioButtonChecked
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Smartphone
-import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Mail
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import android.app.Activity
 import android.content.ClipData
@@ -108,7 +107,7 @@ private fun OnboardingScreen(
             navigationIcon = {
                 if (stepIndex > 0) {
                     IconButton(onClick = { viewModel.prevStep() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_prev))
+                        Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.common_prev))
                     }
                 }
             },
@@ -282,7 +281,7 @@ private fun StepWelcome() {
     ) {
         Spacer(modifier = Modifier.height(16.dp))
         Icon(
-            Icons.Default.Smartphone,
+            Icons.Default.Phone,
             contentDescription = null,
             modifier = Modifier.size(48.dp),
             tint = clawpaw_primary
@@ -311,7 +310,7 @@ private fun StepWelcome() {
                 modifier = Modifier.weight(1f)
             )
             WelcomeBlock(
-                icon = Icons.Default.TouchApp,
+                icon = Icons.Default.Person,
                 title = stringResource(R.string.onboarding_welcome_remote),
                 body = stringResource(R.string.onboarding_welcome_remote_body),
                 modifier = Modifier.weight(1f)
@@ -323,13 +322,13 @@ private fun StepWelcome() {
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             WelcomeBlock(
-                icon = Icons.Default.Link,
+                icon = Icons.Default.Share,
                 title = stringResource(R.string.onboarding_welcome_connection),
                 body = stringResource(R.string.onboarding_welcome_connection_body),
                 modifier = Modifier.weight(1f)
             )
             WelcomeBlock(
-                icon = Icons.Default.Chat,
+                icon = Icons.Default.Mail,
                 title = stringResource(R.string.onboarding_welcome_chat),
                 body = stringResource(R.string.onboarding_welcome_chat_body),
                 modifier = Modifier.weight(1f)
@@ -444,7 +443,7 @@ private fun StepAccessibility(viewModel: OnboardingViewModel) {
         ) {
             Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    if (infoBasicSelected) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
+                    if (infoBasicSelected) Icons.Default.Check else Icons.Default.FavoriteBorder,
                     contentDescription = null,
                     tint = if (infoBasicSelected) clawpaw_primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -475,7 +474,7 @@ private fun StepAccessibility(viewModel: OnboardingViewModel) {
         ) {
             Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    if (infoAllSelected) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
+                    if (infoAllSelected) Icons.Default.Check else Icons.Default.FavoriteBorder,
                     contentDescription = null,
                     tint = if (infoAllSelected) clawpaw_primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -507,7 +506,7 @@ private fun StepAccessibility(viewModel: OnboardingViewModel) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        if (operateSelected) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
+                        if (operateSelected) Icons.Default.Check else Icons.Default.FavoriteBorder,
                         contentDescription = null,
                         tint = if (operateSelected) clawpaw_primary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -626,7 +625,7 @@ private fun StepConnection(viewModel: OnboardingViewModel) {
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Chat, contentDescription = null, tint = clawpaw_primary, modifier = Modifier.size(24.dp))
+                    Icon(Icons.Default.Mail, contentDescription = null, tint = clawpaw_primary, modifier = Modifier.size(24.dp))
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(stringResource(R.string.onboarding_guide_can_talk), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                     Spacer(modifier = Modifier.weight(1f))
@@ -657,7 +656,7 @@ private fun StepConnection(viewModel: OnboardingViewModel) {
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Link, contentDescription = null, tint = clawpaw_primary, modifier = Modifier.size(24.dp))
+                    Icon(Icons.Default.Share, contentDescription = null, tint = clawpaw_primary, modifier = Modifier.size(24.dp))
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(stringResource(R.string.onboarding_guide_cannot_talk), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                     Spacer(modifier = Modifier.weight(1f))
@@ -691,15 +690,7 @@ private fun StepConnection(viewModel: OnboardingViewModel) {
             OutlinedButton(
                 onClick = {
                     activity?.let { act ->
-                        try {
-                            val integrator = com.google.zxing.integration.android.IntentIntegrator(act)
-                            integrator.setDesiredBarcodeFormats(listOf("QR_CODE"))
-                            integrator.setPrompt(context.getString(R.string.main_link_scan_prompt))
-                            integrator.setBeepEnabled(true)
-                            qrScanLauncher.launch(integrator.createScanIntent())
-                        } catch (_: Exception) {
-                            Toast.makeText(context, context.getString(R.string.main_link_qr_parse_error), Toast.LENGTH_SHORT).show()
-                        }
+                        qrScanLauncher.launch(android.content.Intent(act, QrScanActivity::class.java))
                     }
                 },
                 modifier = Modifier.weight(1f),
@@ -980,7 +971,7 @@ private fun StepSummary(viewModel: OnboardingViewModel) {
             .padding(24.dp)
     ) {
         Icon(
-            Icons.Default.CheckCircle,
+            Icons.Default.Check,
             contentDescription = null,
             modifier = Modifier.size(56.dp).align(Alignment.CenterHorizontally),
             tint = clawpaw_primary

@@ -38,6 +38,12 @@ class NodeHttpService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // 先拉成前台，避免 Android 12+ 未在规定时间内 startForeground 被系统杀进程
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(NOTIFICATION_ID, buildNotification())
+        }
         if (server == null) {
             try {
                 server = NodeHttpServer(PORT, applicationContext).apply { start() }
@@ -47,12 +53,6 @@ class NodeHttpService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
-        }
-        // 始终保持前台，避免切后台被系统回收；开关状态由 MainPrefs 持久化，与其它设置一致
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        } else {
-            startForeground(NOTIFICATION_ID, buildNotification())
         }
         return START_STICKY
     }

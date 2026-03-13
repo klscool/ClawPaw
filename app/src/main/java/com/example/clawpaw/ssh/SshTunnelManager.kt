@@ -46,7 +46,9 @@ object SshTunnelManager {
             val s = jsch.getSession(config.username, config.host, config.port).apply {
                 setPassword(config.password)
                 setConfig("StrictHostKeyChecking", "no")
-                setConfig("ServerAliveInterval", "30") // 保活：每 30 秒发送 keepalive，避免中间设备断连
+                // 保活：用 Session API 才能生效，setConfig("ServerAliveInterval") 在 JSch 中可能不发送 keepalive
+                setServerAliveInterval(30_000)   // 每 30 秒发送 keepalive，避免服务端/NAT 约 3–5 分钟空闲断连
+                setServerAliveCountMax(3)        // 连续 3 次无响应再认为断线
                 if (config.proxyPort > 0) {
                     val proxyHost = config.proxyHost.ifEmpty { "127.0.0.1" }
                     setProxy(ProxySOCKS5(proxyHost, config.proxyPort))

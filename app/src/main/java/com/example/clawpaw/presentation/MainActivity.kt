@@ -13,6 +13,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,14 +27,14 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Chat
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
@@ -46,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -94,9 +96,12 @@ class MainActivity : LocaleAwareActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         com.example.clawpaw.data.storage.OnboardingPrefs.init(this)
-        // 测试用：每次启动都进引导；从引导内「开始使用」进入则进主页。测完改回：if (!completed && !fromOnboarding)
+        com.example.clawpaw.data.storage.DebugPrefs.init(this)
         val fromOnboarding = intent.getBooleanExtra("from_onboarding", false)
-        if (!fromOnboarding) {
+        val completed = com.example.clawpaw.data.storage.OnboardingPrefs.isCompleted()
+        val showEveryTime = com.example.clawpaw.data.storage.DebugPrefs.getShowOnboardingEveryTime()
+        val needOnboarding = !fromOnboarding && (!completed || showEveryTime)
+        if (needOnboarding) {
             startActivity(Intent(this, OnboardingActivity::class.java))
             finish()
             return
@@ -197,10 +202,30 @@ fun MainScreen(viewModel: MainViewModel) {
         }
     }
 
+    var titleClickCount by remember { mutableIntStateOf(0) }
+    var titleLastClickMs by remember { mutableStateOf(0L) }
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.main_title), style = MaterialTheme.typography.titleMedium) },
+                title = {
+                    Text(
+                        stringResource(R.string.main_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) {
+                            val now = System.currentTimeMillis()
+                            if (now - titleLastClickMs > 2000L) titleClickCount = 0
+                            titleLastClickMs = now
+                            titleClickCount++
+                            if (titleClickCount >= 5) {
+                                titleClickCount = 0
+                                context.startActivity(Intent(context, DebugSettingsActivity::class.java))
+                            }
+                        }
+                    )
+                },
                 modifier = Modifier.heightIn(min = 32.dp, max = 40.dp),
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
@@ -213,13 +238,13 @@ fun MainScreen(viewModel: MainViewModel) {
                 NavigationBarItem(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    icon = { Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(22.dp)) },
+                    icon = { Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(22.dp)) },
                     label = { Text(stringResource(R.string.main_tab_connection), style = MaterialTheme.typography.labelSmall) }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    icon = { Icon(Icons.Default.Chat, contentDescription = null, modifier = Modifier.size(22.dp)) },
+                    icon = { Icon(Icons.Default.Mail, contentDescription = null, modifier = Modifier.size(22.dp)) },
                     label = { Text(stringResource(R.string.main_tab_chat), style = MaterialTheme.typography.labelSmall) }
                 )
                 NavigationBarItem(
@@ -417,6 +442,13 @@ private fun ChatTabContent(viewModel: MainViewModel) {
     AppPrefs.init(context)
     val chatFontSizeSp = AppPrefs.getChatFontSize().sp
     var chatInputFocused by remember { mutableStateOf(false) }
+    // 用布局高度判断紧凑/展开：键盘弹出时高度变小则收起顶栏，键盘收起后高度恢复则自动展开，避免仅依赖 focus 导致收起键盘后不展开
+    var chatAreaHeightPx by remember { mutableStateOf(0) }
+    var chatAreaMaxHeightPx by remember { mutableStateOf(0) }
+    val chatAreaCompact = remember(chatAreaHeightPx, chatAreaMaxHeightPx) {
+        chatAreaMaxHeightPx > 0 && chatAreaHeightPx < chatAreaMaxHeightPx * 0.65
+    }
+    val showChatHeader = !chatAreaCompact
     val focusManager = LocalFocusManager.current
     BackHandler(enabled = chatInputFocused) { focusManager.clearFocus() }
     LaunchedEffect(Unit) {
@@ -436,8 +468,15 @@ private fun ChatTabContent(viewModel: MainViewModel) {
         if (last > 0) listState.scrollToItem(last - 1)
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        if (!chatInputFocused) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .onSizeChanged { size ->
+                chatAreaHeightPx = size.height
+                if (size.height > chatAreaMaxHeightPx) chatAreaMaxHeightPx = size.height
+            }
+    ) {
+        if (showChatHeader) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()

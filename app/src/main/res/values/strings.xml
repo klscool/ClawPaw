@@ -269,4 +269,8 @@
     <string name="notification_gateway_disconnected">未连接</string>
     <string name="notification_http_title">执行端 HTTP 服务</string>
     <string name="notification_http_text">端口 %1$d · Tailscale 可访问</string>
+
+    <!-- 隐藏调试入口 -->
+    <string name="debug_settings_title">调试选项</string>
+    <string name="debug_show_onboarding_every_time">每次打开显示引导页</string>
 </resources>

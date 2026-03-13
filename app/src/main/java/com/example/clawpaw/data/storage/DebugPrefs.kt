@@ -21,6 +21,8 @@ import com.example.clawpaw.presentation.MainActivity
 object DebugPrefs {
     private const val PREFS = "clawpaw_debug"
     private const val KEY_TOAST = "debug_toast"
+    /** 隐藏入口：是否每次启动都显示引导页（默认 false，仅首次显示） */
+    private const val KEY_SHOW_ONBOARDING_EVERY_TIME = "show_onboarding_every_time"
     private const val CHANNEL_ID = "debug_command"
     private const val NOTIFICATION_ID = 99
     private var prefs: SharedPreferences? = null
@@ -33,6 +35,12 @@ object DebugPrefs {
     fun getDebugToast(): Boolean = false
     fun setDebugToast(enabled: Boolean) {
         prefs?.edit()?.putBoolean(KEY_TOAST, enabled)?.apply()
+    }
+
+    /** 是否每次打开应用都显示引导页；默认 false（仅首次显示） */
+    fun getShowOnboardingEveryTime(): Boolean = prefs?.getBoolean(KEY_SHOW_ONBOARDING_EVERY_TIME, false) ?: false
+    fun setShowOnboardingEveryTime(enabled: Boolean) {
+        prefs?.edit()?.putBoolean(KEY_SHOW_ONBOARDING_EVERY_TIME, enabled)?.apply()
     }
 
     /**

@@ -11,6 +11,8 @@
 .DS_Store
 /build
 /app/build
+# Release 构建产物（baseline profile、output-metadata 等）
+/app/release
 /captures
 .externalNativeBuild
 .cxx
