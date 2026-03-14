@@ -85,7 +85,7 @@ class NodeHttpServer(
                     put("back"); put("open_schema")
                 })
                 put("状态", org.json.JSONArray().apply {
-                    put("location_get"); put("get_wifi_name"); put("get_screen_state"); put("get_state"); put("device_status"); put("device_info")
+                    put("location_get"); put("get_wifi_name"); put("wifi.list"); put("get_screen_state"); put("get_state"); put("device_status"); put("device_info")
                 })
                 put("硬件", org.json.JSONArray().apply {
                     put("vibrate"); put("camera_rear"); put("camera_front"); put("screen_on")
@@ -109,6 +109,7 @@ class NodeHttpServer(
                 put(entry("device_status", "设备状态（同 get_state，带 ok:true）", """{"action":"device_status"}"""))
                 put(entry("device_info", "设备信息", """{"action":"device_info"}"""))
                 put(entry("get_wifi_name", "当前 WiFi 名称", """{"action":"get_wifi_name"}"""))
+                put(entry("wifi.list", "附近 WiFi 列表（SSID、信号等），会先触发扫描；需定位权限", """{"action":"wifi.list"}"""))
                 put(entry("get_screen_state", "屏幕亮/灭 on|off", """{"action":"get_screen_state"}"""))
                 put(entry("get_state", "一次返回：定位+WiFi+屏幕+电量", """{"action":"get_state"}"""))
                 // 硬件（不依赖无障碍）
@@ -314,6 +315,11 @@ class NodeHttpServer(
                 com.example.clawpaw.data.storage.DebugPrefs.showCommandToastIfEnabled(appContext, action)
                 val info = WifiHelper.getWifiInfo(appContext)
                 return json(200, JSONObject().put("success", true).put("result", info))
+            }
+            "wifi.list" -> {
+                com.example.clawpaw.data.storage.DebugPrefs.showCommandToastIfEnabled(appContext, action)
+                val arr = WifiHelper.getWifiScanResults(appContext)
+                return json(200, JSONObject().put("success", true).put("result", arr))
             }
             "wifi.enable" -> {
                 com.example.clawpaw.data.storage.DebugPrefs.showCommandToastIfEnabled(appContext, action)

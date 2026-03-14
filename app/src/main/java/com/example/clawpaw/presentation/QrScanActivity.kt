@@ -4,6 +4,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
@@ -15,7 +16,9 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
 import com.example.clawpaw.R
+import com.example.clawpaw.util.Logger
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
 import com.google.zxing.LuminanceSource
@@ -30,6 +33,15 @@ import java.util.concurrent.Executors
 class QrScanActivity : LocaleAwareActivity() {
 
     private lateinit var previewView: PreviewView
+
+    private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (isDestroyed) return@registerForActivityResult
+        if (!granted) {
+            Toast.makeText(this@QrScanActivity, getString(R.string.main_link_qr_camera_permission_denied), Toast.LENGTH_SHORT).show()
+            finish()
+        }
+        // 授权时不在回调里 startCamera()：此时可能还在 onPause，bindToLifecycle 会失败。等对话框关闭后 onResume 会再次执行并启动相机。
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,18 +62,17 @@ class QrScanActivity : LocaleAwareActivity() {
         }
         root.addView(hint)
         setContentView(root)
+    }
 
-        val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) startCamera() else {
-                Toast.makeText(this@QrScanActivity, getString(R.string.main_link_qr_parse_error), Toast.LENGTH_SHORT).show()
-                finish()
-            }
+    override fun onResume() {
+        super.onResume()
+        if (isDestroyed) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            permissionLauncher.launch(Manifest.permission.CAMERA)
+            return
         }
-        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            permissionLauncher.launch(android.Manifest.permission.CAMERA)
-        } else {
-            startCamera()
-        }
+        // 等 PreviewView 完成布局后再 bind，避免 surfaceProvider 未就绪导致 bindToLifecycle 失败
+        previewView.post { startCamera() }
     }
 
     private fun startCamera() {
@@ -70,6 +81,7 @@ class QrScanActivity : LocaleAwareActivity() {
             val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
             cameraProviderFuture.addListener({
                 if (isDestroyed) return@addListener
+                if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED).not()) return@addListener
                 try {
                     val cameraProvider = cameraProviderFuture.get()
                     val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
@@ -81,14 +93,16 @@ class QrScanActivity : LocaleAwareActivity() {
                     cameraProvider.unbindAll()
                     cameraProvider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analyzer)
                 } catch (e: Throwable) {
+                    Logger.e("QrScanActivity", "bindToLifecycle failed", e)
                     if (!isDestroyed) {
-                        Toast.makeText(this, getString(R.string.main_link_qr_parse_error), Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, getString(R.string.main_link_qr_camera_failed), Toast.LENGTH_SHORT).show()
                         finish()
                     }
                 }
             }, ContextCompat.getMainExecutor(this))
         } catch (e: Throwable) {
-            Toast.makeText(this, getString(R.string.main_link_qr_parse_error), Toast.LENGTH_SHORT).show()
+            Logger.e("QrScanActivity", "ProcessCameraProvider.getInstance or addListener failed", e)
+            Toast.makeText(this, getString(R.string.main_link_qr_camera_failed), Toast.LENGTH_SHORT).show()
             finish()
         }
     }

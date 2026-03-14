@@ -3,6 +3,7 @@ package com.example.clawpaw.gateway
 import android.content.Context
 import android.os.Build
 import android.util.Base64
+import com.example.clawpaw.data.api.RetrofitClient
 import com.example.clawpaw.data.storage.DebugPrefs
 import com.example.clawpaw.util.CommandLog
 import com.example.clawpaw.util.Logger
@@ -299,9 +300,10 @@ class GatewayConnection(
                         pendingReqs.remove(id)?.complete(ChatResResult(ok, payload, errMsg.ifEmpty { null }))
                     }
                     if (!handshakeDone && payload != null && payload.optString("type") == "hello-ok") {
+                        mainSessionKey = payload.optJSONObject("snapshot")?.optJSONObject("sessionDefaults")?.optString("mainSessionKey", null)?.takeIf { it.isNotBlank() }
+                        persistDeviceTokenIfPresent(json, payload)
                         handshakeDone = true
                         _handshakeDone.value = true
-                        mainSessionKey = payload.optJSONObject("snapshot")?.optJSONObject("sessionDefaults")?.optString("mainSessionKey", null)?.takeIf { it.isNotBlank() }
                         CommandLog.addEntry(logSource, "握手完成，已注册")
                         Logger.i(logTag, "握手完成 role=$role sessionKey=${mainSessionKey?.take(8) ?: "null"}…")
                         if (role == "operator") scope.launch { sendRequest("chat.subscribe", JSONObject().put("sessionKey", mainSessionKey ?: "main")) }
@@ -310,9 +312,12 @@ class GatewayConnection(
                     if (!handshakeDone) {
                         Logger.i(logTag, "connect 响应: ok=$ok error=$errMsg payload=$payload")
                         if (ok) {
+                            if (payload != null) {
+                                mainSessionKey = payload.optJSONObject("snapshot")?.optJSONObject("sessionDefaults")?.optString("mainSessionKey", null)?.takeIf { it.isNotBlank() }
+                                persistDeviceTokenIfPresent(json, payload)
+                            }
                             handshakeDone = true
                             _handshakeDone.value = true
-                            if (payload != null) mainSessionKey = payload.optJSONObject("snapshot")?.optJSONObject("sessionDefaults")?.optString("mainSessionKey", null)?.takeIf { it.isNotBlank() }
                             CommandLog.addEntry(logSource, "握手完成，已注册")
                             Logger.i(logTag, "握手完成 role=$role sessionKey=${mainSessionKey?.take(8) ?: "null"}…")
                             if (role == "operator") scope.launch { sendRequest("chat.subscribe", JSONObject().put("sessionKey", mainSessionKey ?: "main")) }
@@ -363,12 +368,50 @@ class GatewayConnection(
         }
     }
 
+    /** 若 Gateway 在 hello-ok/connect 响应中下发了 deviceToken，持久化后后续连接用设备 token 而非 bootstrapToken。res 为完整 res 消息，payload 为 res.payload（部分 Gateway 把 auth 放在 res 根）。 */
+    private fun persistDeviceTokenIfPresent(res: JSONObject, payload: JSONObject) {
+        fun fromAuth(obj: JSONObject?): String? = obj?.let { a ->
+            a.optString("deviceToken", "").takeIf { it.isNotBlank() }
+                ?: a.optString("token", "").takeIf { it.isNotBlank() }
+        }
+        val deviceToken = fromAuth(res.optJSONObject("auth"))
+            ?: fromAuth(payload.optJSONObject("auth"))
+            ?: payload.optString("deviceToken", "").takeIf { it.isNotBlank() }
+            ?: payload.optJSONObject("snapshot")?.optJSONObject("auth")?.optString("deviceToken", "")?.takeIf { it.isNotBlank() }
+        if (deviceToken.isNullOrEmpty()) {
+            if (role == "node") {
+                Logger.w(logTag, "node 握手成功但未解析到 deviceToken，Gateway 可能未下发或字段不同。请查看本条之前的 [node] WS res 完整 的 JSON 结构，便于补充解析路径。res(前500字符)=${res.toString().take(500)}")
+            }
+            return
+        }
+        context?.applicationContext?.let { ctx ->
+            try {
+                RetrofitClient.init(ctx)
+                if (role == "node") {
+                    RetrofitClient.setNodeToken(deviceToken)
+                    RetrofitClient.setHasNodeDeviceToken(true)
+                } else {
+                    RetrofitClient.setOperatorToken(deviceToken)
+                    RetrofitClient.setHasOperatorDeviceToken(true)
+                }
+                Logger.i(logTag, "已持久化 deviceToken，后续连接将使用。deviceToken=$deviceToken")
+            } catch (e: Exception) {
+                Logger.e(logTag, "持久化 deviceToken 失败", e)
+            }
+        }
+    }
+
     private fun sendConnectRequest(challengeNonce: String, challengeTs: Long) {
         try {
             val (deviceId, publicKeyBase64Url, signPayload) = getOrCreateEd25519Identity()
             val signedAtMs = System.currentTimeMillis()
-            // 与官方 node (gateway/client.ts) 一致：v3 管道拼接字符串，非 JSON
-            val authToken = gatewayToken?.takeIf { it.isNotBlank() }?.trim()
+            // 一次 reload 内取 token 与是否来自持久化，保证一致，避免误发 bootstrapToken
+            val (authTokenRaw, fromPersistent) = context?.applicationContext?.let { ctx ->
+                RetrofitClient.init(ctx)
+                RetrofitClient.reloadFromPrefs()
+                RetrofitClient.getAuthForConnectWithSource(role)
+            } ?: Pair(null, false)
+            val authToken = authTokenRaw?.takeIf { it.isNotBlank() }?.trim() ?: gatewayToken?.takeIf { it.isNotBlank() }?.trim()
             // 与官方 openclaw-android-node-apk 一致：node 用 clientMode=node，operator 用 clientMode=ui；签名 payload 与 connect  params 一致
             val clientMode = if (role == "operator") "ui" else "node"
             val payloadStr = buildDeviceAuthPayloadV3(
@@ -401,7 +444,13 @@ class GatewayConnection(
                 put("role", role)
                 put("scopes", org.json.JSONArray().apply { scopes.forEach { put(it) } })
                 if (!authToken.isNullOrEmpty()) {
-                    put("auth", JSONObject().put("token", authToken))
+                    val preview = if (authToken.length <= 12) "***" else "${authToken.take(4)}...${authToken.takeLast(4)}"
+                    Logger.i(logTag, "连接使用的 token: 来源=${if (fromPersistent) "持久化" else role} token, 长度=${authToken.length}, 预览=$preview, auth 字段=${if (fromPersistent) "仅 token" else "token+bootstrapToken"}")
+                    val authObj = JSONObject().apply { put("token", authToken) }
+                    if (!fromPersistent) authObj.put("bootstrapToken", authToken)
+                    put("auth", authObj)
+                } else {
+                    Logger.i(logTag, "连接使用的 token: 无（未配置持久化/Node/Operator token）")
                 }
                 put("caps", if (role == "node") org.json.JSONArray().apply {
                     put("screen")
@@ -456,6 +505,7 @@ class GatewayConnection(
                     put("sensors.info")
                     put("bluetooth.list")
                     put("wifi.info")
+                    put("wifi.list")
                     put("wifi.enable")
                     put("sms.list")
                     put("sms.send")

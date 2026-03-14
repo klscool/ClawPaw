@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -28,6 +29,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -70,6 +74,7 @@ fun SshTunnelScreen(
     var portStr by remember(config.port) { mutableStateOf(config.port.toString()) }
     var username by remember(config) { mutableStateOf(config.username) }
     var password by remember(config) { mutableStateOf(config.password) }
+    var showSshPassword by remember { mutableStateOf(false) }
     var showProxy by remember { mutableStateOf(config.proxyPort > 0) }
     var proxyHost by remember(config.proxyHost) { mutableStateOf(config.proxyHost) }
     var proxyPortStr by remember(config.proxyPort) { mutableStateOf(if (config.proxyPort > 0) config.proxyPort.toString() else "") }
@@ -135,7 +140,14 @@ fun SshTunnelScreen(
                         onValueChange = { password = it },
                         label = { Text(stringResource(R.string.ssh_password)) },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        visualTransformation = if (showSshPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        trailingIcon = {
+                            TextButton(onClick = { showSshPassword = !showSshPassword }) {
+                                Text(if (showSshPassword) stringResource(R.string.gateway_hide_password) else stringResource(R.string.gateway_show_password), style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     TextButton(onClick = { showProxy = !showProxy }) {

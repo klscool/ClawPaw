@@ -9,9 +9,14 @@ object RetrofitClient {
     private const val PREFS_GATEWAY = "gateway_prefs"
     private const val KEY_HOST = "host"
     private const val KEY_GATEWAY_TOKEN = "gateway_token"
+    private const val KEY_ORIGINAL_TOKEN = "gateway_original_token"
+    private const val KEY_NODE_TOKEN = "gateway_node_token"
+    private const val KEY_OPERATOR_TOKEN = "gateway_operator_token"
     private const val KEY_GATEWAY_PASSWORD = "gateway_password"
     private const val KEY_NODE_DISPLAY_NAME = "node_display_name"
     private const val KEY_GATEWAY_PORT = "gateway_port"
+    private const val KEY_HAS_NODE_DEVICE_TOKEN = "has_node_device_token"
+    private const val KEY_HAS_OPERATOR_DEVICE_TOKEN = "has_operator_device_token"
     private const val DEFAULT_GATEWAY_PORT = 18789
     /** 开源版本不内置默认 token，由用户在 App 内配置 */
     private const val DEFAULT_GATEWAY_TOKEN = ""
@@ -24,6 +29,15 @@ object RetrofitClient {
     private val _gatewayToken = MutableStateFlow(DEFAULT_GATEWAY_TOKEN)
     val gatewayToken: StateFlow<String> = _gatewayToken.asStateFlow()
 
+    private val _originalToken = MutableStateFlow("")
+    val originalToken: StateFlow<String> = _originalToken.asStateFlow()
+
+    private val _nodeToken = MutableStateFlow("")
+    val nodeToken: StateFlow<String> = _nodeToken.asStateFlow()
+
+    private val _operatorToken = MutableStateFlow("")
+    val operatorToken: StateFlow<String> = _operatorToken.asStateFlow()
+
     private val _gatewayPassword = MutableStateFlow("")
     val gatewayPassword: StateFlow<String> = _gatewayPassword.asStateFlow()
 
@@ -33,16 +47,36 @@ object RetrofitClient {
     private val _gatewayPort = MutableStateFlow(DEFAULT_GATEWAY_PORT)
     val gatewayPortFlow: StateFlow<Int> = _gatewayPort.asStateFlow()
 
+    private val _hasNodeDeviceToken = MutableStateFlow(false)
+    val hasNodeDeviceToken: StateFlow<Boolean> = _hasNodeDeviceToken.asStateFlow()
+    private val _hasOperatorDeviceToken = MutableStateFlow(false)
+    val hasOperatorDeviceToken: StateFlow<Boolean> = _hasOperatorDeviceToken.asStateFlow()
+
     fun init(context: android.content.Context) {
-        if (prefs != null) return
-        prefs = context.getSharedPreferences(PREFS_GATEWAY, android.content.Context.MODE_PRIVATE)
-        prefs?.getString(KEY_HOST, DEFAULT_HOST)?.takeIf { it.isNotBlank() }?.let {
-            _serverHost.value = it
+        if (prefs == null) {
+            prefs = context.getSharedPreferences(PREFS_GATEWAY, android.content.Context.MODE_PRIVATE)
         }
-        _gatewayToken.value = prefs?.getString(KEY_GATEWAY_TOKEN, "") ?: ""
-        _gatewayPassword.value = prefs?.getString(KEY_GATEWAY_PASSWORD, "") ?: ""
-        _nodeDisplayName.value = prefs?.getString(KEY_NODE_DISPLAY_NAME, "")?.takeIf { it.isNotBlank() } ?: ""
-        _gatewayPort.value = prefs?.getInt(KEY_GATEWAY_PORT, DEFAULT_GATEWAY_PORT) ?: DEFAULT_GATEWAY_PORT
+        reloadFromPrefs()
+    }
+
+    /** 从 prefs 重新加载，确保读到其他连接刚写入的 deviceToken。
+     * 兼容旧版：若未配置过 原/Node/Operator 任一 token 但存有 legacy gateway_token，则视为原 token 用于直连。 */
+    fun reloadFromPrefs() {
+        val p = prefs ?: return
+        p.getString(KEY_HOST, DEFAULT_HOST)?.takeIf { it.isNotBlank() }?.let { _serverHost.value = it }
+        _gatewayToken.value = p.getString(KEY_GATEWAY_TOKEN, "") ?: ""
+        _originalToken.value = p.getString(KEY_ORIGINAL_TOKEN, "")?.takeIf { it.isNotBlank() } ?: ""
+        _nodeToken.value = p.getString(KEY_NODE_TOKEN, "") ?: ""
+        _operatorToken.value = p.getString(KEY_OPERATOR_TOKEN, "") ?: ""
+        // 兼容旧版：未配置过原 token 但存有 legacy gateway_token 时视为原 token，优先直连且不传 bootstrapToken
+        if (_originalToken.value.isEmpty() && _gatewayToken.value.isNotBlank()) {
+            _originalToken.value = _gatewayToken.value
+        }
+        _gatewayPassword.value = p.getString(KEY_GATEWAY_PASSWORD, "") ?: ""
+        _nodeDisplayName.value = p.getString(KEY_NODE_DISPLAY_NAME, "")?.takeIf { it.isNotBlank() } ?: ""
+        _gatewayPort.value = p.getInt(KEY_GATEWAY_PORT, DEFAULT_GATEWAY_PORT)
+        _hasNodeDeviceToken.value = p.getBoolean(KEY_HAS_NODE_DEVICE_TOKEN, false)
+        _hasOperatorDeviceToken.value = p.getBoolean(KEY_HAS_OPERATOR_DEVICE_TOKEN, false)
     }
 
     fun getGatewayPort(): Int = _gatewayPort.value
@@ -56,10 +90,34 @@ object RetrofitClient {
     fun setGatewayToken(token: String) {
         val t = token.trim()
         _gatewayToken.value = t
-        prefs?.edit()?.putString(KEY_GATEWAY_TOKEN, t)?.apply()
+        prefs?.edit()?.putString(KEY_GATEWAY_TOKEN, t)?.commit()
     }
 
-    /** 当前保存的 Gateway 认证 token，connect 时带上可避免 AUTH_TOKEN_MISSING。 */
+    fun setOriginalToken(token: String) {
+        val t = token.trim()
+        _originalToken.value = t
+        prefs?.edit()?.putString(KEY_ORIGINAL_TOKEN, t)?.commit()
+    }
+    fun setNodeToken(token: String) {
+        val t = token.trim()
+        _nodeToken.value = t
+        prefs?.edit()?.putString(KEY_NODE_TOKEN, t)?.commit()
+    }
+    fun setOperatorToken(token: String) {
+        val t = token.trim()
+        _operatorToken.value = t
+        prefs?.edit()?.putString(KEY_OPERATOR_TOKEN, t)?.commit()
+    }
+    fun setHasNodeDeviceToken(has: Boolean) {
+        _hasNodeDeviceToken.value = has
+        prefs?.edit()?.putBoolean(KEY_HAS_NODE_DEVICE_TOKEN, has)?.commit()
+    }
+    fun setHasOperatorDeviceToken(has: Boolean) {
+        _hasOperatorDeviceToken.value = has
+        prefs?.edit()?.putBoolean(KEY_HAS_OPERATOR_DEVICE_TOKEN, has)?.commit()
+    }
+    fun getHasNodeDeviceToken(): Boolean = _hasNodeDeviceToken.value
+    fun getHasOperatorDeviceToken(): Boolean = _hasOperatorDeviceToken.value
     fun getGatewayToken(): String = _gatewayToken.value
 
     /** Gateway 密码（与 token 二选一，部分网关支持密码认证）。 */
@@ -71,13 +129,36 @@ object RetrofitClient {
         prefs?.edit()?.putString(KEY_GATEWAY_PASSWORD, p)?.apply()
     }
 
-    /** 用于 connect 的认证字符串：优先 token，否则 password。 */
-    fun getAuthForConnect(): String? {
-        val t = _gatewayToken.value.trim()
-        if (t.isNotBlank()) return t
-        val p = _gatewayPassword.value.trim()
-        if (p.isNotBlank()) return p
+    /** 用于 connect 的认证（Node 与 Operator 共用此顺序）：
+     * 1. 原 Token（直连优先，有则 Node/Operator 都用它）
+     * 2. 无原 Token 时按 role 用 Node Token 或 Operator Token
+     * 3. 再无则用密码
+     * 旧版单 token 在 reload 时已并入原 token，故原 token 直连方式仍有效。 */
+    fun getAuthForConnect(role: String): String? {
+        val orig = _originalToken.value.trim()
+        if (orig.isNotBlank()) return orig
+        val roleToken = if (role == "operator") _operatorToken.value.trim() else _nodeToken.value.trim()
+        if (roleToken.isNotBlank()) return roleToken
+        if (_gatewayPassword.value.trim().isNotBlank()) return _gatewayPassword.value.trim()
         return null
+    }
+
+    fun getOriginalToken(): String = _originalToken.value
+    fun getNodeToken(): String = _nodeToken.value
+    fun getOperatorToken(): String = _operatorToken.value
+
+    /** 当前 getAuthForConnect 返回的是否为持久化（原）token。为 true 时 connect 只传 token 不传 bootstrapToken，避免服务端按 bootstrap 校验。 */
+    fun isAuthFromPersistentToken(): Boolean = _originalToken.value.trim().isNotBlank()
+
+    /** 一次 reload 内同时返回 connect 用的 token 与是否来自持久化，保证一致；second 为 true 时不应传 bootstrapToken。 */
+    fun getAuthForConnectWithSource(role: String): Pair<String?, Boolean> {
+        val orig = _originalToken.value.trim()
+        if (orig.isNotBlank()) return Pair(orig, true)
+        val roleToken = if (role == "operator") _operatorToken.value.trim() else _nodeToken.value.trim()
+        if (roleToken.isNotBlank()) return Pair(roleToken, false)
+        val pwd = _gatewayPassword.value.trim()
+        if (pwd.isNotBlank()) return Pair(pwd, false)
+        return Pair(null, false)
     }
 
     fun getServerHost(): String = _serverHost.value

@@ -73,7 +73,7 @@
             android:name=".presentation.OnboardingActivity"
             android:exported="false"
             android:theme="@style/Theme.ClawPaw"
-            android:windowSoftInputMode="adjustResize" />
+            android:windowSoftInputMode="adjustNothing" />
         <activity
             android:name=".presentation.SshTunnelActivity"
             android:exported="false"

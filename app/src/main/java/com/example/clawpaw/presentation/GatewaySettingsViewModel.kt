@@ -31,6 +31,24 @@ class GatewaySettingsViewModel(application: Application) : AndroidViewModel(appl
         ""
     )
 
+    val originalToken = RetrofitClient.originalToken.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        ""
+    )
+
+    val nodeToken = RetrofitClient.nodeToken.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        ""
+    )
+
+    val operatorToken = RetrofitClient.operatorToken.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        ""
+    )
+
     val gatewayPassword = RetrofitClient.gatewayPassword.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
@@ -63,12 +81,39 @@ class GatewaySettingsViewModel(application: Application) : AndroidViewModel(appl
         ConnectionState.Disconnected
     )
 
+    val nodeHandshakeDone = GatewayConnectionService.nodeHandshakeDone.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        false
+    )
+
+    val hasNodeDeviceToken = RetrofitClient.hasNodeDeviceToken.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        false
+    )
+    val hasOperatorDeviceToken = RetrofitClient.hasOperatorDeviceToken.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        false
+    )
+
     fun updateHost(host: String) {
         RetrofitClient.setServerHost(host.trim())
     }
 
     fun updateToken(token: String) {
         RetrofitClient.setGatewayToken(token.trim())
+    }
+
+    fun updateOriginalToken(token: String) {
+        RetrofitClient.setOriginalToken(token)
+    }
+    fun updateNodeToken(token: String) {
+        RetrofitClient.setNodeToken(token)
+    }
+    fun updateOperatorToken(token: String) {
+        RetrofitClient.setOperatorToken(token)
     }
 
     fun updatePassword(password: String) {

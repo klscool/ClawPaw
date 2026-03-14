@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.example.clawpaw.R
+import com.example.clawpaw.data.storage.AppPrefs
 import com.example.clawpaw.http.NodeHttpServer
 import com.example.clawpaw.presentation.MainActivity
 import com.example.clawpaw.util.Logger
@@ -43,6 +44,11 @@ class NodeHttpService : Service() {
             startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
             startForeground(NOTIFICATION_ID, buildNotification())
+        }
+        // 与「常驻通知」开关一致：关上时移除通知栏显示，仅保留前台保活
+        AppPrefs.init(applicationContext)
+        if (!AppPrefs.getPersistentNotification()) {
+            stopForeground(Service.STOP_FOREGROUND_DETACH)
         }
         if (server == null) {
             try {

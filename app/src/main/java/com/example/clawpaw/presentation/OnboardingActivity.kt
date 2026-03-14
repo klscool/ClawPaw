@@ -555,46 +555,61 @@ private fun StepConnection(viewModel: OnboardingViewModel) {
     val host by viewModel.connectionHost.collectAsStateWithLifecycle()
     val port by viewModel.connectionPort.collectAsStateWithLifecycle()
     val token by viewModel.connectionToken.collectAsStateWithLifecycle()
+    val connectionPassword by viewModel.connectionPassword.collectAsStateWithLifecycle()
     val useGateway by viewModel.useGateway.collectAsStateWithLifecycle()
     val useHttpService by viewModel.useHttpService.collectAsStateWithLifecycle()
     val context = LocalContext.current
     RetrofitClient.init(context)
-    var canTalkExpanded by remember { mutableStateOf(false) }
-    var cannotTalkExpanded by remember { mutableStateOf(false) }
+    var scanOrCodeExpanded by remember { mutableStateOf(true) }
     var manualConfigExpanded by remember { mutableStateOf(false) }
     var pairingCode by remember { mutableStateOf("") }
     val activity = context as? Activity
+    var pendingParsed by remember { mutableStateOf<Triple<String, Int, String>?>(null) }
+    fun tryApplyContent(content: String) {
+        val (parsed, reason) = GatewayPairingHelper.parseWithReason(content.trim())
+        if (parsed == null) {
+            Toast.makeText(context, context.getString(R.string.main_link_qr_parse_error_detail, reason ?: ""), Toast.LENGTH_LONG).show()
+            return
+        }
+        pendingParsed = parsed
+    }
     val qrScanLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            result.data?.getStringExtra(QrScanActivity.EXTRA_QR_CONTENT)?.let { content ->
-                if (GatewayPairingHelper.parseAndSaveToPrefs(context, content)) {
-                    val p = GatewayPairingHelper.parse(content)
-                    if (p != null) {
-                        viewModel.setConnectionHost(p.first)
-                        viewModel.setConnectionPort(p.second)
-                        p.third?.let { viewModel.setConnectionToken(it) }
-                        viewModel.setUseGateway(true)
-                    }
-                    Toast.makeText(context, context.getString(R.string.onboarding_pair_success), Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, context.getString(R.string.main_link_qr_parse_error), Toast.LENGTH_SHORT).show()
-                }
-            }
+            val content = result.data?.getStringExtra(QrScanActivity.EXTRA_QR_CONTENT)?.trim()
+            if (!content.isNullOrEmpty()) tryApplyContent(content)
         }
     }
-    fun applyPairingCode() {
-        if (GatewayPairingHelper.parseAndSaveToPrefs(context, pairingCode.trim())) {
-            val p = GatewayPairingHelper.parse(pairingCode.trim())
-            if (p != null) {
-                viewModel.setConnectionHost(p.first)
-                viewModel.setConnectionPort(p.second)
-                p.third?.let { viewModel.setConnectionToken(it) }
+    if (pendingParsed != null) {
+        val (host, port, token) = pendingParsed!!
+        PairRoleConfirmDialog(
+            host = host,
+            port = port,
+            token = token,
+            onDismiss = { pendingParsed = null },
+            onChooseNode = { h, p, t ->
+                GatewayPairingHelper.saveParsedAsNode(context, h, p, t)
+                viewModel.setConnectionHost(h)
+                viewModel.setConnectionPort(p)
+                viewModel.setConnectionToken(t)
                 viewModel.setUseGateway(true)
+                pendingParsed = null
+                pairingCode = ""
+                Toast.makeText(context, context.getString(R.string.onboarding_pair_success), Toast.LENGTH_SHORT).show()
+            },
+            onChooseOperator = { h, p, t ->
+                GatewayPairingHelper.saveParsedAsOperator(context, h, p, t)
+                viewModel.setConnectionHost(h)
+                viewModel.setConnectionPort(p)
+                viewModel.setConnectionToken(t)
+                viewModel.setUseGateway(true)
+                pendingParsed = null
+                pairingCode = ""
+                Toast.makeText(context, context.getString(R.string.onboarding_pair_success), Toast.LENGTH_SHORT).show()
             }
-            Toast.makeText(context, context.getString(R.string.onboarding_pair_success), Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(context, context.getString(R.string.main_link_qr_parse_error), Toast.LENGTH_SHORT).show()
-        }
+        )
+    }
+    fun applyPairingCode() {
+        tryApplyContent(pairingCode.trim())
     }
 
     Column(
@@ -617,98 +632,65 @@ private fun StepConnection(viewModel: OnboardingViewModel) {
         )
         Spacer(modifier = Modifier.height(20.dp))
 
-        // 引导：能与 OpenClaw 沟通 / 不能沟通（默认一行，展开显示内容）
+        // 1. 扫码或配对码连接（展开后显示说明 + 配对码输入 + 扫码）；仅顶部标题行可点击展开/收起
         Card(
-            modifier = Modifier.fillMaxWidth().clickable { canTalkExpanded = !canTalkExpanded },
+            modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
             shape = RoundedCornerShape(12.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Mail, contentDescription = null, tint = clawpaw_primary, modifier = Modifier.size(24.dp))
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(stringResource(R.string.onboarding_guide_can_talk), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-                    Spacer(modifier = Modifier.weight(1f))
-                    Icon(if (canTalkExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null)
-                }
-                if (canTalkExpanded) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(stringResource(R.string.onboarding_guide_can_talk_copy), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = stringResource(R.string.onboarding_guide_can_talk_prompt),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    TextButton(onClick = {
-                        (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? ClipboardManager)?.setPrimaryClip(ClipData.newPlainText("prompt", context.getString(R.string.onboarding_guide_can_talk_prompt)))
-                        Toast.makeText(context, context.getString(R.string.common_copied), Toast.LENGTH_SHORT).show()
-                    }) { Text(stringResource(R.string.common_copy)) }
-                }
-            }
-        }
-        Spacer(modifier = Modifier.height(10.dp))
-        Card(
-            modifier = Modifier.fillMaxWidth().clickable { cannotTalkExpanded = !cannotTalkExpanded },
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable { scanOrCodeExpanded = !scanOrCodeExpanded },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(Icons.Default.Share, contentDescription = null, tint = clawpaw_primary, modifier = Modifier.size(24.dp))
                     Spacer(modifier = Modifier.width(12.dp))
-                    Text(stringResource(R.string.onboarding_guide_cannot_talk), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                    Text(stringResource(R.string.onboarding_guide_scan_or_code), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                     Spacer(modifier = Modifier.weight(1f))
-                    Icon(if (cannotTalkExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null)
+                    Icon(if (scanOrCodeExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null)
                 }
-                if (cannotTalkExpanded) {
+                if (scanOrCodeExpanded) {
                     Spacer(modifier = Modifier.height(10.dp))
-                    Text(stringResource(R.string.onboarding_guide_cannot_talk_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.onboarding_guide_scan_or_code_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = pairingCode,
+                        onValueChange = { pairingCode = it },
+                        placeholder = { Text(stringResource(R.string.main_link_setup_code_placeholder)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 2
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Button(onClick = { applyPairingCode() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp), enabled = pairingCode.isNotBlank()) {
+                            Text(stringResource(R.string.main_link_connect_with_code))
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                activity?.let { act ->
+                                    qrScanLauncher.launch(android.content.Intent(act, QrScanActivity::class.java))
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp)
+                        ) { Text(stringResource(R.string.main_link_scan_qr_btn)) }
+                    }
                 }
             }
         }
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // 扫码或配对码建立连接
-        Text(stringResource(R.string.onboarding_pair_title), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(stringResource(R.string.onboarding_pair_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(modifier = Modifier.height(10.dp))
-        OutlinedTextField(
-            value = pairingCode,
-            onValueChange = { pairingCode = it },
-            placeholder = { Text(stringResource(R.string.main_link_setup_code_placeholder)) },
-            modifier = Modifier.fillMaxWidth(),
-            maxLines = 2
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = { applyPairingCode() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp), enabled = pairingCode.isNotBlank()) {
-                Text(stringResource(R.string.main_link_connect_with_code))
-            }
-            OutlinedButton(
-                onClick = {
-                    activity?.let { act ->
-                        qrScanLauncher.launch(android.content.Intent(act, QrScanActivity::class.java))
-                    }
-                },
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(10.dp)
-            ) { Text(stringResource(R.string.main_link_scan_qr_btn)) }
-        }
-        Spacer(modifier = Modifier.height(20.dp))
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // 手动配置：默认收起，点击展开
+        // 手动配置：默认收起，仅顶部标题行可点击展开/收起
         Card(
-            modifier = Modifier.fillMaxWidth().clickable { manualConfigExpanded = !manualConfigExpanded },
+            modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
             shape = RoundedCornerShape(12.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable { manualConfigExpanded = !manualConfigExpanded },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(Icons.Default.Settings, contentDescription = null, tint = clawpaw_primary, modifier = Modifier.size(24.dp))
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(stringResource(R.string.onboarding_manual_config), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
@@ -717,6 +699,7 @@ private fun StepConnection(viewModel: OnboardingViewModel) {
                 }
                 if (manualConfigExpanded) {
                     var showToken by remember { mutableStateOf(false) }
+                    var showPassword by remember { mutableStateOf(false) }
                     Spacer(modifier = Modifier.height(12.dp))
                     OutlinedTextField(
                         value = host,
@@ -740,8 +723,8 @@ private fun StepConnection(viewModel: OnboardingViewModel) {
                     OutlinedTextField(
                         value = token,
                         onValueChange = { viewModel.setConnectionToken(it) },
-                        label = { Text(stringResource(R.string.gateway_token)) },
-                        placeholder = { Text(stringResource(R.string.gateway_token_placeholder)) },
+                        label = { Text(stringResource(R.string.gateway_persistent_token)) },
+                        placeholder = { Text(stringResource(R.string.gateway_persistent_token_placeholder)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         visualTransformation = if (showToken) VisualTransformation.None else PasswordVisualTransformation(),
@@ -749,6 +732,22 @@ private fun StepConnection(viewModel: OnboardingViewModel) {
                         trailingIcon = {
                             TextButton(onClick = { showToken = !showToken }) {
                                 Text(if (showToken) stringResource(R.string.gateway_hide_token) else stringResource(R.string.gateway_show_token), style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = connectionPassword,
+                        onValueChange = { viewModel.setConnectionPassword(it) },
+                        label = { Text(stringResource(R.string.gateway_password)) },
+                        placeholder = { Text(stringResource(R.string.gateway_password_placeholder)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        trailingIcon = {
+                            TextButton(onClick = { showPassword = !showPassword }) {
+                                Text(if (showPassword) stringResource(R.string.gateway_hide_password) else stringResource(R.string.gateway_show_password), style = MaterialTheme.typography.labelSmall)
                             }
                         }
                     )
@@ -1022,7 +1021,7 @@ private fun StepSummary(viewModel: OnboardingViewModel) {
                 Spacer(modifier = Modifier.height(4.dp))
                 if (useGateway) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Node (Gateway)", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.onboarding_node_connect_title), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("$connHost:$connPort ($hostLabel)", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }

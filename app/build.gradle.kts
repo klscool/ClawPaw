@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.clawpaw"
         minSdk = 29
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -89,8 +89,9 @@ dependencies {
     implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.compose.material:material-icons-extended")
     implementation(libs.androidx.camera.core)
-    implementation("androidx.camera:camera-view:1.4.0")
-    implementation("androidx.camera:camera-lifecycle:1.4.0")
+    implementation("androidx.camera:camera-camera2:1.4.2")
+    implementation("androidx.camera:camera-lifecycle:1.4.2")
+    implementation("androidx.camera:camera-view:1.4.2")
     implementation("com.google.guava:guava:32.1.3-android")
 
     // 测试相关

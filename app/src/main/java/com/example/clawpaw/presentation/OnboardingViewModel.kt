@@ -35,7 +35,10 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
     private val _connectionToken = MutableStateFlow("")
     val connectionToken: StateFlow<String> = _connectionToken.asStateFlow()
 
-    /** 第三步：是否通过 Node（域名/IP）连接 */
+    private val _connectionPassword = MutableStateFlow("")
+    val connectionPassword: StateFlow<String> = _connectionPassword.asStateFlow()
+
+    /** 第三步：是否通过 Gateway 配对连接 */
     private val _useGateway = MutableStateFlow(true)
     val useGateway: StateFlow<Boolean> = _useGateway.asStateFlow()
 
@@ -81,7 +84,8 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
                     if (host.isNotBlank()) {
                         RetrofitClient.setServerHost(host)
                         RetrofitClient.setGatewayPort(_connectionPort.value)
-                        RetrofitClient.setGatewayToken(_connectionToken.value.trim())
+                        RetrofitClient.setOriginalToken(_connectionToken.value.trim())
+                        RetrofitClient.setGatewayPassword(_connectionPassword.value.trim())
                     }
                 }
                 _currentStep.value = OnboardingStep.Authorization
@@ -110,6 +114,7 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
     fun setConnectionHost(host: String) { _connectionHost.value = host }
     fun setConnectionPort(port: Int) { _connectionPort.value = port.coerceIn(1, 65535) }
     fun setConnectionToken(token: String) { _connectionToken.value = token }
+    fun setConnectionPassword(password: String) { _connectionPassword.value = password }
     fun setUseGateway(use: Boolean) { _useGateway.value = use }
     fun setUseHttpService(use: Boolean) { _useHttpService.value = use }
 

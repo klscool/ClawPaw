@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -17,6 +18,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,6 +32,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -62,19 +67,19 @@ fun GatewaySettingsScreen(
 ) {
     val context = LocalContext.current
     val host by viewModel.gatewayHost.collectAsStateWithLifecycle()
-    val token by viewModel.gatewayToken.collectAsStateWithLifecycle()
-    val password by viewModel.gatewayPassword.collectAsStateWithLifecycle()
-    val maskedToken by viewModel.maskedGatewayToken.collectAsStateWithLifecycle()
-    val maskedPassword by viewModel.maskedGatewayPassword.collectAsStateWithLifecycle()
+    val originalToken by viewModel.originalToken.collectAsStateWithLifecycle()
+    val nodeToken by viewModel.nodeToken.collectAsStateWithLifecycle()
+    val operatorToken by viewModel.operatorToken.collectAsStateWithLifecycle()
+    val gatewayPassword by viewModel.gatewayPassword.collectAsStateWithLifecycle()
     val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
+    val nodeHandshakeDone by viewModel.nodeHandshakeDone.collectAsStateWithLifecycle()
     val nodeDisplayName by viewModel.nodeDisplayName.collectAsStateWithLifecycle(initialValue = "")
     val gatewayPort by viewModel.gatewayPort.collectAsStateWithLifecycle(initialValue = 18789)
     var editHost by remember(host) { mutableStateOf(host) }
     var editNodeName by remember(nodeDisplayName) { mutableStateOf(nodeDisplayName) }
     var editPort by remember(gatewayPort) { mutableStateOf(gatewayPort.toString()) }
-    var editToken by remember(token) { mutableStateOf(token) }
-    var editPassword by remember(password) { mutableStateOf(password) }
-    var showToken by remember { mutableStateOf(false) }
+    var editOriginalToken by remember(originalToken) { mutableStateOf(originalToken) }
+    var editPassword by remember(gatewayPassword) { mutableStateOf(gatewayPassword) }
     var showPassword by remember { mutableStateOf(false) }
     var showClearKeysConfirm by remember { mutableStateOf(false) }
 
@@ -139,14 +144,26 @@ fun GatewaySettingsScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = editHost,
-                        onValueChange = { editHost = it },
-                        label = { Text(stringResource(R.string.gateway_address)) },
-                        placeholder = { Text(stringResource(R.string.gateway_address_placeholder)) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = editHost,
+                            onValueChange = { editHost = it },
+                            label = { Text(stringResource(R.string.gateway_address)) },
+                            placeholder = { Text(stringResource(R.string.gateway_address_placeholder)) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = { editHost = "127.0.0.1" },
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(stringResource(R.string.gateway_use_local), style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
                     Text(
                         text = stringResource(R.string.gateway_address_hint),
                         style = MaterialTheme.typography.bodySmall,
@@ -167,68 +184,61 @@ fun GatewaySettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = stringResource(R.string.gateway_token_label),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (token.isEmpty()) stringResource(R.string.gateway_token_not_set) else stringResource(R.string.gateway_token_set),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (token.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     OutlinedTextField(
-                        value = if (showToken) editToken else maskedToken.ifEmpty { editToken },
-                        onValueChange = { editToken = it },
-                        label = { Text(stringResource(R.string.gateway_token)) },
-                        placeholder = { Text(stringResource(R.string.gateway_token_placeholder)) },
+                        value = editOriginalToken,
+                        onValueChange = { editOriginalToken = it },
+                        label = { Text(stringResource(R.string.gateway_persistent_token)) },
+                        placeholder = { Text(stringResource(R.string.gateway_persistent_token_placeholder)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    TextButton(onClick = { showToken = !showToken }) {
-                        Text(if (showToken) stringResource(R.string.gateway_hide_token) else stringResource(R.string.gateway_show_token), color = MaterialTheme.colorScheme.secondary)
-                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = stringResource(R.string.gateway_token_node_line, if (nodeToken.isNotBlank()) context.getString(R.string.gateway_token_status_set, nodeToken.takeLast(4)) else stringResource(R.string.gateway_token_status_not_set)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = stringResource(R.string.gateway_token_operator_line, if (operatorToken.isNotBlank()) context.getString(R.string.gateway_token_status_set, operatorToken.takeLast(4)) else stringResource(R.string.gateway_token_status_not_set)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     Spacer(modifier = Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = stringResource(R.string.gateway_password_label),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (password.isEmpty()) stringResource(R.string.gateway_token_not_set) else stringResource(R.string.gateway_token_set),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (password.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
                     OutlinedTextField(
-                        value = if (showPassword) editPassword else maskedPassword.ifEmpty { editPassword },
+                        value = editPassword,
                         onValueChange = { editPassword = it },
                         label = { Text(stringResource(R.string.gateway_password)) },
                         placeholder = { Text(stringResource(R.string.gateway_password_placeholder)) },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        trailingIcon = {
+                            TextButton(onClick = { showPassword = !showPassword }) {
+                                Text(if (showPassword) stringResource(R.string.gateway_hide_password) else stringResource(R.string.gateway_show_password), style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
                     )
-                    TextButton(onClick = { showPassword = !showPassword }) {
-                        Text(if (showPassword) stringResource(R.string.gateway_hide_password) else stringResource(R.string.gateway_show_password), color = MaterialTheme.colorScheme.secondary)
-                    }
                 }
             }
             Spacer(modifier = Modifier.height(16.dp))
 
+            OutlinedButton(
+                onClick = {
+                    viewModel.updateNodeDisplayName(editNodeName)
+                    viewModel.updateHost(editHost)
+                    editPort.toIntOrNull()?.let { viewModel.updateGatewayPort(it) }
+                    viewModel.updateOriginalToken(editOriginalToken)
+                    viewModel.updatePassword(editPassword)
+                    Toast.makeText(context, context.getString(R.string.gateway_saved_toast), Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text(stringResource(R.string.common_save))
+            }
+            Spacer(modifier = Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -238,7 +248,7 @@ fun GatewaySettingsScreen(
                         viewModel.updateNodeDisplayName(editNodeName)
                         viewModel.updateHost(editHost)
                         editPort.toIntOrNull()?.let { viewModel.updateGatewayPort(it) }
-                        viewModel.updateToken(editToken)
+                        viewModel.updateOriginalToken(editOriginalToken)
                         viewModel.updatePassword(editPassword)
                         viewModel.connect()
                         Toast.makeText(context, context.getString(R.string.gateway_connecting_toast), Toast.LENGTH_SHORT).show()
@@ -264,11 +274,13 @@ fun GatewaySettingsScreen(
             }
 
             Text(
-                text = when (connectionState) {
-                    is GatewayConnection.ConnectionState.Connected -> stringResource(R.string.gateway_status_connected)
-                    is GatewayConnection.ConnectionState.Connecting -> stringResource(R.string.gateway_status_connecting)
-                    is GatewayConnection.ConnectionState.Disconnected -> stringResource(R.string.gateway_status_disconnected)
-                    is GatewayConnection.ConnectionState.Error -> stringResource(R.string.gateway_status_error)
+                text = when {
+                    connectionState is GatewayConnection.ConnectionState.Connected && nodeHandshakeDone -> stringResource(R.string.gateway_status_connected_registered)
+                    connectionState is GatewayConnection.ConnectionState.Connected && !nodeHandshakeDone -> stringResource(R.string.gateway_status_connected_waiting)
+                    connectionState is GatewayConnection.ConnectionState.Connecting -> stringResource(R.string.gateway_status_connecting)
+                    connectionState is GatewayConnection.ConnectionState.Disconnected -> stringResource(R.string.gateway_status_disconnected)
+                    connectionState is GatewayConnection.ConnectionState.Error -> context.getString(R.string.gateway_status_error_detail, (connectionState as GatewayConnection.ConnectionState.Error).message)
+                    else -> stringResource(R.string.gateway_status_disconnected)
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant

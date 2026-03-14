@@ -55,6 +55,17 @@ Full command list and parameters: see the Chinese [使用说明](使用说明.md
 
 ---
 
+## Use with OpenClaw
+
+To control the phone from OpenClaw on your computer, install the **OpenClaw Skill** and follow its setup (Gateway or HTTP). You can then use natural language or `nodes invoke` to operate the device.
+
+- **[ClawPaw Android Control](https://clawhub.ai/klscool/clawpaw-android-control)** (ClawHub)
+- **[clawpaw-android-control](https://github.com/klscool/clawpaw-android-control)** (GitHub)
+
+The Skill includes the command list, permission docs, and examples. After installing the ClawPaw App, configure the connection as described in the Skill.
+
+---
+
 ## Build and run
 
 - **Requirements**: JDK 11+, [Android Studio](https://developer.android.com/studio), device or emulator (Android 10+, minSdk 29).

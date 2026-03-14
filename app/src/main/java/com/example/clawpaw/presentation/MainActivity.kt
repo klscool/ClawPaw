@@ -28,6 +28,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Mail
@@ -297,85 +298,94 @@ private const val MAX_CHAT_ATTACHMENTS = 8
 /** 单个附件最大约 3MB（过大会导致发送超时或 Gateway 拒绝） */
 private const val MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024
 
-/** 解析链接/扫码内容并写入 host/port/token、发起连接。无 url 或 token 时弹提示 */
-private fun applyParsedLink(context: Context, content: String, viewModel: MainViewModel) {
-    if (!com.example.clawpaw.util.GatewayPairingHelper.parseAndSaveToPrefs(context, content)) {
-        Toast.makeText(context, context.getString(R.string.main_link_qr_parse_error), Toast.LENGTH_SHORT).show()
-        return
-    }
-    val parsed = com.example.clawpaw.util.GatewayPairingHelper.parse(content)!!
-    viewModel.updateGatewayHost(parsed.first)
-    viewModel.updateGatewayPort(parsed.second)
-    viewModel.updateGatewayToken(parsed.third!!)
-    viewModel.connectGateway()
-}
-
 @Composable
-private fun NodeLinkMethodsCard(context: Context, viewModel: MainViewModel) {
+private fun NodeLinkExpandableContent(context: Context, viewModel: MainViewModel) {
     RetrofitClient.init(context)
     var linkOrCode by remember { mutableStateOf("") }
+    var pendingParsed by remember { mutableStateOf<Triple<String, Int, String>?>(null) }
     val activity = context as? Activity
-    val qrScanLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        try {
-            val scanResult = com.google.zxing.integration.android.IntentIntegrator.parseActivityResult(result.resultCode, result.data)
-            scanResult?.contents?.let { applyParsedLink(context, it, viewModel) }
-        } catch (_: Exception) { }
+    fun tryApplyContent(content: String) {
+        val (parsed, reason) = com.example.clawpaw.util.GatewayPairingHelper.parseWithReason(content.trim())
+        if (parsed == null) {
+            Toast.makeText(context, context.getString(R.string.main_link_qr_parse_error_detail, reason ?: ""), Toast.LENGTH_LONG).show()
+            return
+        }
+        pendingParsed = parsed
     }
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Text(stringResource(R.string.main_link_methods), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(stringResource(R.string.main_link_setup_code), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(stringResource(R.string.main_link_setup_code_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(modifier = Modifier.height(6.dp))
-            OutlinedTextField(
-                value = linkOrCode,
-                onValueChange = { linkOrCode = it },
-                label = { Text(stringResource(R.string.main_link_setup_code_placeholder)) },
-                placeholder = { Text(stringResource(R.string.main_link_setup_code_placeholder)) },
-                singleLine = false,
-                maxLines = 3,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Button(
-                onClick = { applyParsedLink(context, linkOrCode.trim(), viewModel) },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp),
-                enabled = linkOrCode.isNotBlank()
-            ) {
-                Text(stringResource(R.string.main_link_connect_with_code))
+    val qrScanLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            result.data?.getStringExtra(com.example.clawpaw.presentation.QrScanActivity.EXTRA_QR_CONTENT)?.let { content ->
+                if (!content.isNullOrEmpty()) tryApplyContent(content)
             }
-            Spacer(modifier = Modifier.height(16.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(stringResource(R.string.main_link_scan_qr), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(stringResource(R.string.main_link_scan_qr_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedButton(
-                onClick = {
-                    activity?.let { act ->
-                        try {
-                            val integrator = com.google.zxing.integration.android.IntentIntegrator(act)
-                            integrator.setDesiredBarcodeFormats(listOf("QR_CODE"))
-                            integrator.setPrompt(context.getString(R.string.main_link_scan_prompt))
-                            integrator.setBeepEnabled(true)
-                            qrScanLauncher.launch(integrator.createScanIntent())
-                        } catch (e: Exception) {
-                            Toast.makeText(context, context.getString(R.string.main_link_qr_parse_error), Toast.LENGTH_SHORT).show()
-                        }
+        }
+    }
+    if (pendingParsed != null) {
+        val (host, port, token) = pendingParsed!!
+        PairRoleConfirmDialog(
+            host = host,
+            port = port,
+            token = token,
+            onDismiss = { pendingParsed = null },
+            onChooseNode = { h, p, t ->
+                com.example.clawpaw.util.GatewayPairingHelper.saveParsedAsNode(context, h, p, t)
+                viewModel.updateGatewayHost(h)
+                viewModel.updateGatewayPort(p)
+                viewModel.connectGateway()
+                linkOrCode = ""
+                pendingParsed = null
+                Toast.makeText(context, context.getString(R.string.main_link_success), Toast.LENGTH_SHORT).show()
+            },
+            onChooseOperator = { h, p, t ->
+                com.example.clawpaw.util.GatewayPairingHelper.saveParsedAsOperator(context, h, p, t)
+                viewModel.updateGatewayHost(h)
+                viewModel.updateGatewayPort(p)
+                viewModel.connectGateway()
+                linkOrCode = ""
+                pendingParsed = null
+                Toast.makeText(context, context.getString(R.string.main_link_success), Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(stringResource(R.string.main_link_setup_code), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(modifier = Modifier.height(6.dp))
+        OutlinedTextField(
+            value = linkOrCode,
+            onValueChange = { linkOrCode = it },
+            label = { Text(stringResource(R.string.main_link_setup_code_placeholder)) },
+            placeholder = { Text(stringResource(R.string.main_link_setup_code_placeholder)) },
+            singleLine = false,
+            maxLines = 3,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Button(
+            onClick = { tryApplyContent(linkOrCode.trim()) },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(10.dp),
+            enabled = linkOrCode.isNotBlank()
+        ) {
+            Text(stringResource(R.string.main_link_connect_with_code))
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(stringResource(R.string.main_link_scan_qr), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = {
+                activity?.let { act ->
+                    try {
+                        qrScanLauncher.launch(Intent(act, com.example.clawpaw.presentation.QrScanActivity::class.java))
+                    } catch (e: Exception) {
+                        Toast.makeText(context, context.getString(R.string.main_link_qr_parse_error), Toast.LENGTH_SHORT).show()
                     }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Text(stringResource(R.string.main_link_scan_qr_btn))
-            }
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(10.dp)
+        ) {
+            Text(stringResource(R.string.main_link_scan_qr_btn))
         }
     }
 }
@@ -869,6 +879,8 @@ private fun ConnectionTabContent(viewModel: MainViewModel) {
     ) {
         SectionTitle(title = stringResource(R.string.main_connection_status))
         Spacer(modifier = Modifier.height(8.dp))
+        // Node (Gateway) 卡片：状态 + 配对码/扫码（默认收起）
+        var nodeLinkExpanded by remember { mutableStateOf(false) }
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -877,36 +889,7 @@ private fun ConnectionTabContent(viewModel: MainViewModel) {
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.main_ssh_tunnel), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                    StatusChip(ready = isSshConnected)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                    SmallCircleCheckbox(checked = autoReconnectSsh, onCheckedChange = { autoReconnectSsh = it; AppPrefs.setAutoReconnectSsh(it) })
-                    Spacer(Modifier.width(6.dp))
-                    Text(stringResource(R.string.main_auto_reconnect), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Text(if (isSshConnected) stringResource(R.string.common_connected) else stringResource(R.string.common_disconnected), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (isSshConnected) {
-                        OutlinedButton(onClick = { viewModel.disconnectSsh() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.common_disconnect)) }
-                    } else {
-                        Button(onClick = { viewModel.connectSsh() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.common_connect)) }
-                    }
-                    OutlinedButton(onClick = { context.startActivity(Intent(context, SshTunnelActivity::class.java)) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.main_ssh_settings)) }
-                }
-            }
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Node (Gateway)", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Text(stringResource(R.string.main_gateway_connection_card), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                     StatusChip(ready = connectionState is GatewayConnection.ConnectionState.Connected && nodeHandshakeDone)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
@@ -935,10 +918,61 @@ private fun ConnectionTabContent(viewModel: MainViewModel) {
                     }
                     OutlinedButton(onClick = { context.startActivity(Intent(context, GatewaySettingsActivity::class.java)) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.main_node_settings)) }
                 }
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { nodeLinkExpanded = !nodeLinkExpanded },
+                    color = androidx.compose.ui.graphics.Color.Transparent,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Row(modifier = Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(stringResource(R.string.main_link_methods), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.weight(1f))
+                        Icon(
+                            if (nodeLinkExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = if (nodeLinkExpanded) stringResource(R.string.main_collapse) else stringResource(R.string.main_expand),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                if (nodeLinkExpanded) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    NodeLinkExpandableContent(context = context, viewModel = viewModel)
+                }
             }
         }
         Spacer(modifier = Modifier.height(12.dp))
-        NodeLinkMethodsCard(context = context, viewModel = viewModel)
+        // SSH 卡片：放在 Node 下面，独立卡片
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.main_ssh_tunnel), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                    StatusChip(ready = isSshConnected)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                    SmallCircleCheckbox(checked = autoReconnectSsh, onCheckedChange = { autoReconnectSsh = it; AppPrefs.setAutoReconnectSsh(it) })
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.main_auto_reconnect), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text(if (isSshConnected) stringResource(R.string.common_connected) else stringResource(R.string.common_disconnected), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (isSshConnected) {
+                        OutlinedButton(onClick = { viewModel.disconnectSsh() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.common_disconnect)) }
+                    } else {
+                        Button(onClick = { viewModel.connectSsh() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.common_connect)) }
+                    }
+                    OutlinedButton(onClick = { context.startActivity(Intent(context, SshTunnelActivity::class.java)) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.main_ssh_settings)) }
+                }
+            }
+        }
         Spacer(modifier = Modifier.height(12.dp))
         Card(
             modifier = Modifier.fillMaxWidth(),

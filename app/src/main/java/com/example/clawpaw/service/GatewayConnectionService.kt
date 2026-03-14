@@ -123,7 +123,10 @@ class GatewayConnectionService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.notification_gateway_connecting)))
         }
-        val token = RetrofitClient.getAuthForConnect() ?: ""
+        RetrofitClient.init(applicationContext)
+        RetrofitClient.reloadFromPrefs()
+        val nodeAuth = RetrofitClient.getAuthForConnect("node") ?: ""
+        val operatorAuth = RetrofitClient.getAuthForConnect("operator") ?: ""
         val displayName = RetrofitClient.getNodeDisplayName()
         val ctx = applicationContext
         val connection = GatewayConnection(
@@ -240,6 +243,7 @@ class GatewayConnectionService : Service() {
                         "sensors.info" -> kotlin.runCatching { SensorsHelper.getSensorsInfo(ctx) }
                         "bluetooth.list" -> kotlin.runCatching { BluetoothHelper.getBondedDevices(ctx) }
                         "wifi.info" -> kotlin.runCatching { WifiHelper.getWifiInfo(ctx) }
+                        "wifi.list" -> kotlin.runCatching { WifiHelper.getWifiScanResults(ctx) }
                         "wifi.enable" -> kotlin.runCatching {
                             val on = params.optBoolean("enabled", true)
                             Logger.d(TAG, "wifi.enable 收到 params: ${params.toString().take(200)}, enabled=$on")
@@ -287,7 +291,7 @@ class GatewayConnectionService : Service() {
                 }
             },
             context = ctx,
-            gatewayToken = token.ifBlank { null },
+            gatewayToken = nodeAuth.takeIf { it.isNotBlank() },
             displayName = displayName
         )
         val operatorConn = GatewayConnection(
@@ -298,7 +302,7 @@ class GatewayConnectionService : Service() {
                 kotlin.runCatching { throw IllegalStateException("operator connection does not handle $method") }
             },
             context = ctx,
-            gatewayToken = token.ifBlank { null },
+            gatewayToken = operatorAuth.takeIf { it.isNotBlank() },
             displayName = displayName,
             role = "operator",
             scopes = listOf("operator.read", "operator.write", "operator.talk.secrets")
@@ -350,6 +354,12 @@ class GatewayConnectionService : Service() {
                 connection.handshakeDoneFlow.collect { done ->
                     _nodeHandshakeDone.value = done
                     Logger.i(TAG, "node 握手完成: $done")
+                    if (done) {
+                        com.example.clawpaw.data.api.RetrofitClient.init(applicationContext)
+                        com.example.clawpaw.data.api.RetrofitClient.reloadFromPrefs()
+                        Logger.i(TAG, "node 已握手，启动 operator 连接（使用已下发的 deviceToken）")
+                        operatorGatewayConnection?.connect()
+                    }
                 }
             }
         }
@@ -376,9 +386,8 @@ class GatewayConnectionService : Service() {
         operatorGatewayConnection = operatorConn
         operatorConnection = operatorConn
         connection.connect()
-        operatorConn.connect()
         startBackgroundReconnectCheck()
-        Logger.i(TAG, "node + operator connect() 已调用，请查看后续 node/operator 连接状态 或 adb logcat | grep ClawPaw")
+        Logger.i(TAG, "node connect() 已调用，operator 将在 node 握手成功后连接")
         return START_STICKY
     }
 

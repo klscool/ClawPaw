@@ -297,6 +297,12 @@ class CommandReceiver : BroadcastReceiver() {
                             setResultData(info.toString())
                             return
                         }
+                        "wifi.list" -> {
+                            val arr = WifiHelper.getWifiScanResults(context)
+                            setResultCode(RESULT_OK)
+                            setResultData(arr.toString())
+                            return
+                        }
                         "wifi.enable" -> {
                             val enabled = command.optBoolean("enabled", true)
                             WifiHelper.setWifiEnabled(context, enabled)
