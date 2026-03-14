@@ -27,6 +27,10 @@ class NodeHttpService : Service() {
         private const val CHANNEL_ID = "node_http"
         private const val NOTIFICATION_ID = 2
         const val PORT = 8765
+        /** 是否已在运行，用于避免重复 start 导致通知反复出现 */
+        @Volatile
+        var isRunning = false
+            private set
     }
 
     private var server: NodeHttpServer? = null
@@ -35,6 +39,7 @@ class NodeHttpService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
         createChannel()
     }
 
@@ -64,6 +69,7 @@ class NodeHttpService : Service() {
     }
 
     override fun onDestroy() {
+        isRunning = false
         try {
             server?.stop()
             server = null

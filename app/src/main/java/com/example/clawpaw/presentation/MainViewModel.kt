@@ -551,8 +551,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 sshReconnectJob = j
             }
         }
-        // 若用户已开启 HTTP 服务，每次刷新时确保拉起（进程被系统回收后重进应用可自动恢复）
-        if (MainPrefs.getHttpServiceEnabled()) {
+        // 若用户已开启 HTTP 服务且当前未在跑，才拉起（避免重复 start 导致通知反复出现；进程被回收后重进应用会重新 start）
+        if (MainPrefs.getHttpServiceEnabled() && !NodeHttpService.isRunning) {
             val intent = Intent(app, NodeHttpService::class.java)
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) app.startForegroundService(intent) else app.startService(intent)
