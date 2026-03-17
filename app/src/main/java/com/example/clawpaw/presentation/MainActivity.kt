@@ -60,6 +60,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import android.widget.Toast
 import android.Manifest
 import android.content.ClipData
@@ -460,17 +461,21 @@ private fun ChatTabContent(viewModel: MainViewModel) {
     }
     val showChatHeader = !chatAreaCompact
     val focusManager = LocalFocusManager.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     BackHandler(enabled = chatInputFocused) { focusManager.clearFocus() }
     LaunchedEffect(Unit) {
         viewModel.loadChatHistory()
         viewModel.loadChatSessions(200)
     }
-    LaunchedEffect(operatorConnected) {
+    // 仅在前台时定时拉取 history/sessions，后台不拉取以省电
+    LaunchedEffect(operatorConnected, lifecycleOwner) {
         if (!operatorConnected) return@LaunchedEffect
-        while (true) {
-            delay(AppPrefs.getChatRefreshInterval().delayMs)
-            viewModel.loadChatHistory(silent = true)
-            viewModel.loadChatSessions(200)
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                delay(AppPrefs.getChatRefreshInterval().delayMs)
+                viewModel.loadChatHistory(silent = true)
+                viewModel.loadChatSessions(200)
+            }
         }
     }
     LaunchedEffect(displayedMessages.size, streamingText) {

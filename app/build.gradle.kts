@@ -93,6 +93,7 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.4.2")
     implementation("androidx.camera:camera-view:1.4.2")
     implementation("com.google.guava:guava:32.1.3-android")
+    implementation("com.google.android.gms:play-services-location:21.0.1")
 
     // 测试相关
     testImplementation(libs.junit)
