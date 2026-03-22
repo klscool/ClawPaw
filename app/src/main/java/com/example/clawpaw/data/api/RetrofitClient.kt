@@ -1,5 +1,7 @@
 package com.example.clawpaw.data.api
 
+import com.example.clawpaw.data.storage.GatewayProfile
+import com.example.clawpaw.data.storage.GatewayProfileStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -52,11 +54,56 @@ object RetrofitClient {
     private val _hasOperatorDeviceToken = MutableStateFlow(false)
     val hasOperatorDeviceToken: StateFlow<Boolean> = _hasOperatorDeviceToken.asStateFlow()
 
+    /** 批量写入配置（如切换配置槽）时不把中间状态写回当前槽 */
+    private var suppressProfilePush = false
+
     fun init(context: android.content.Context) {
         if (prefs == null) {
             prefs = context.getSharedPreferences(PREFS_GATEWAY, android.content.Context.MODE_PRIVATE)
         }
+        GatewayProfileStore.init(context.applicationContext)
         reloadFromPrefs()
+        suppressProfilePush = true
+        try {
+            GatewayProfileStore.migrateIfNeeded()
+        } finally {
+            suppressProfilePush = false
+        }
+    }
+
+    /** 当前内存中的 Gateway 配置快照（用于多槽保存）。 */
+    fun toGatewayProfile(): GatewayProfile = GatewayProfile(
+        host = _serverHost.value,
+        port = _gatewayPort.value,
+        nodeDisplayName = _nodeDisplayName.value,
+        originalToken = _originalToken.value,
+        nodeToken = _nodeToken.value,
+        operatorToken = _operatorToken.value,
+        gatewayToken = _gatewayToken.value,
+        password = _gatewayPassword.value,
+    )
+
+    /** 应用某套配置到全局（连接、配对等均读此状态）。 */
+    fun applyGatewayProfile(p: GatewayProfile) {
+        suppressProfilePush = true
+        try {
+            setServerHost(p.host)
+            setGatewayPort(p.port)
+            setNodeDisplayName(p.nodeDisplayName)
+            setOriginalToken(p.originalToken)
+            setNodeToken(p.nodeToken)
+            setOperatorToken(p.operatorToken)
+            setGatewayToken(p.gatewayToken)
+            setGatewayPassword(p.password)
+            reloadFromPrefs()
+        } finally {
+            suppressProfilePush = false
+        }
+    }
+
+    private fun pushActiveProfileSnapshot() {
+        if (suppressProfilePush) return
+        GatewayProfileStore.saveSlot(GatewayProfileStore.getActiveIndex(), toGatewayProfile())
     }
 
     /** 从 prefs 重新加载，确保读到其他连接刚写入的 deviceToken。
@@ -85,28 +132,33 @@ object RetrofitClient {
         val p = port.coerceIn(1, 65535)
         _gatewayPort.value = p
         prefs?.edit()?.putInt(KEY_GATEWAY_PORT, p)?.apply()
+        pushActiveProfileSnapshot()
     }
 
     fun setGatewayToken(token: String) {
         val t = token.trim()
         _gatewayToken.value = t
         prefs?.edit()?.putString(KEY_GATEWAY_TOKEN, t)?.commit()
+        pushActiveProfileSnapshot()
     }
 
     fun setOriginalToken(token: String) {
         val t = token.trim()
         _originalToken.value = t
         prefs?.edit()?.putString(KEY_ORIGINAL_TOKEN, t)?.commit()
+        pushActiveProfileSnapshot()
     }
     fun setNodeToken(token: String) {
         val t = token.trim()
         _nodeToken.value = t
         prefs?.edit()?.putString(KEY_NODE_TOKEN, t)?.commit()
+        pushActiveProfileSnapshot()
     }
     fun setOperatorToken(token: String) {
         val t = token.trim()
         _operatorToken.value = t
         prefs?.edit()?.putString(KEY_OPERATOR_TOKEN, t)?.commit()
+        pushActiveProfileSnapshot()
     }
     fun setHasNodeDeviceToken(has: Boolean) {
         _hasNodeDeviceToken.value = has
@@ -127,6 +179,7 @@ object RetrofitClient {
         val p = password.trim()
         _gatewayPassword.value = p
         prefs?.edit()?.putString(KEY_GATEWAY_PASSWORD, p)?.apply()
+        pushActiveProfileSnapshot()
     }
 
     /** 用于 connect 的认证（Node 与 Operator 共用此顺序）：
@@ -167,6 +220,7 @@ object RetrofitClient {
         val trimmed = host.trim()
         _serverHost.value = trimmed
         prefs?.edit()?.putString(KEY_HOST, trimmed)?.apply()
+        pushActiveProfileSnapshot()
     }
 
     /** 节点显示名称，Gateway 端展示用；未配置时返回设备型号（与官方一致）。 */
@@ -177,5 +231,6 @@ object RetrofitClient {
         val trimmed = name.trim()
         _nodeDisplayName.value = trimmed
         prefs?.edit()?.putString(KEY_NODE_DISPLAY_NAME, trimmed)?.apply()
+        pushActiveProfileSnapshot()
     }
 }

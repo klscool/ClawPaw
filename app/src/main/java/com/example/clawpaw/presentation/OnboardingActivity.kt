@@ -53,6 +53,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.clawpaw.R
+import com.example.clawpaw.build.FlavorCommandGate
 import com.example.clawpaw.ssh.PortMapping
 import com.example.clawpaw.ssh.ReversePortMapping
 import com.example.clawpaw.ssh.SshPrefs
@@ -95,7 +96,8 @@ private fun OnboardingScreen(
     onFinish: () -> Unit
 ) {
     val step by viewModel.currentStep.collectAsStateWithLifecycle()
-    val stepIndex = viewModel.stepIndex()
+    val progressIndex = viewModel.progressIndex()
+    val stepCount = viewModel.onboardingStepCount()
     val accessibilityChoice by viewModel.accessibilityChoice.collectAsStateWithLifecycle()
     val accessibilityEnabled by viewModel.accessibilityEnabled.collectAsStateWithLifecycle()
     val useGateway by viewModel.useGateway.collectAsStateWithLifecycle()
@@ -105,7 +107,7 @@ private fun OnboardingScreen(
         TopAppBar(
             title = { Text(stringResource(R.string.onboarding_title), style = MaterialTheme.typography.titleMedium) },
             navigationIcon = {
-                if (stepIndex > 0) {
+                if (progressIndex > 0) {
                     IconButton(onClick = { viewModel.prevStep() }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.common_prev))
                     }
@@ -123,14 +125,14 @@ private fun OnboardingScreen(
                 .padding(horizontal = 24.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            repeat(5) { i ->
+            repeat(stepCount) { i ->
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .height(4.dp)
                         .clip(RoundedCornerShape(2.dp))
                         .background(
-                            if (i <= stepIndex) clawpaw_primary
+                            if (i <= progressIndex) clawpaw_primary
                             else MaterialTheme.colorScheme.surfaceVariant
                         )
                 )
@@ -201,7 +203,12 @@ private fun OnboardingScreen(
             }
             when (step) {
                 OnboardingStep.Welcome -> StepWelcome()
-                OnboardingStep.Accessibility -> StepAccessibility(viewModel)
+                OnboardingStep.Accessibility -> {
+                    when (FlavorCommandGate.currentTier()) {
+                        FlavorCommandGate.Tier.SENSITIVE -> StepDataScope(viewModel)
+                        else -> StepAccessibility(viewModel)
+                    }
+                }
                 OnboardingStep.Connection -> StepConnection(viewModel)
                 OnboardingStep.Authorization -> StepAuthorization(
                     viewModel = viewModel,
@@ -258,10 +265,7 @@ private fun OnboardingScreen(
                         if (step == OnboardingStep.Summary) onFinish() else viewModel.nextStep()
                     },
                     modifier = Modifier.weight(if (step == OnboardingStep.Welcome) 2f else 1f),
-                    enabled = when (step) {
-                        OnboardingStep.Accessibility -> true
-                        else -> viewModel.canGoNext()
-                    },
+                    enabled = viewModel.canGoNext(),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Text(if (step == OnboardingStep.Summary) stringResource(R.string.onboarding_start) else stringResource(R.string.common_next))
@@ -402,10 +406,12 @@ private fun StepAccessibility(viewModel: OnboardingViewModel) {
     val accessibilityEnabled by viewModel.accessibilityEnabled.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            viewModel.refreshAccessibilityState()
-            kotlinx.coroutines.delay(1500)
+    if (FlavorCommandGate.hasAccessibilityFlavor()) {
+        LaunchedEffect(Unit) {
+            while (true) {
+                viewModel.refreshAccessibilityState()
+                kotlinx.coroutines.delay(1500)
+            }
         }
     }
 
@@ -541,6 +547,93 @@ private fun StepAccessibility(viewModel: OnboardingViewModel) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         stringResource(R.string.onboarding_accessibility_how_to),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 敏感信息包：仅「基础信息 / 含敏感信息」两档，无远程操作选项 */
+@Composable
+private fun StepDataScope(viewModel: OnboardingViewModel) {
+    val choice by viewModel.accessibilityChoice.collectAsStateWithLifecycle()
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp)
+    ) {
+        Text(
+            stringResource(R.string.onboarding_data_scope_title),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            stringResource(R.string.onboarding_data_scope_subtitle),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+
+        val infoBasicSelected = choice == AccessibilityChoice.InfoBasic
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { viewModel.setAccessibilityChoice(AccessibilityChoice.InfoBasic) }
+                .then(
+                    if (infoBasicSelected) Modifier.border(2.dp, clawpaw_primary, RoundedCornerShape(16.dp))
+                    else Modifier
+                ),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (infoBasicSelected) Icons.Default.Check else Icons.Default.FavoriteBorder,
+                    contentDescription = null,
+                    tint = if (infoBasicSelected) clawpaw_primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
+                    Text(stringResource(R.string.onboarding_get_info), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        stringResource(R.string.onboarding_no_accessibility_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+
+        val infoAllSelected = choice == AccessibilityChoice.InfoAll
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { viewModel.setAccessibilityChoice(AccessibilityChoice.InfoAll) }
+                .then(
+                    if (infoAllSelected) Modifier.border(2.dp, clawpaw_primary, RoundedCornerShape(16.dp))
+                    else Modifier
+                ),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (infoAllSelected) Icons.Default.Check else Icons.Default.FavoriteBorder,
+                    contentDescription = null,
+                    tint = if (infoAllSelected) clawpaw_primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
+                    Text(stringResource(R.string.onboarding_get_info_all), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        stringResource(R.string.onboarding_get_info_all_desc),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -773,21 +866,23 @@ private fun StepConnection(viewModel: OnboardingViewModel) {
                 }
             }
         }
-        Spacer(modifier = Modifier.height(20.dp))
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        Spacer(modifier = Modifier.height(20.dp))
-        Text(stringResource(R.string.onboarding_extend), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(stringResource(R.string.onboarding_ssh_intro), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(modifier = Modifier.height(12.dp))
-        OutlinedButton(
-            onClick = { context.startActivity(Intent(context, SshTunnelActivity::class.java)) },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(20.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(stringResource(R.string.onboarding_configure_ssh))
+        if (FlavorCommandGate.hasSshFlavor()) {
+            Spacer(modifier = Modifier.height(20.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(modifier = Modifier.height(20.dp))
+            Text(stringResource(R.string.onboarding_extend), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(stringResource(R.string.onboarding_ssh_intro), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(modifier = Modifier.height(12.dp))
+            OutlinedButton(
+                onClick = { context.startActivity(Intent(context, SshTunnelActivity::class.java)) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(stringResource(R.string.onboarding_configure_ssh))
+            }
         }
     }
 }
@@ -811,13 +906,22 @@ private fun StepAuthorization(
     val accessibilityEnabled by viewModel.accessibilityEnabled.collectAsStateWithLifecycle()
     var authRefreshTick by remember { mutableIntStateOf(0) }
     val notificationListenerEnabled = com.example.clawpaw.service.NotificationListener.isEnabled(context)
+    val tier = FlavorCommandGate.currentTier()
+    val showOperateAccessibilityRow = FlavorCommandGate.hasAccessibilityFlavor() && choice == AccessibilityChoice.Operate
+    val showSensitivePermissionBlock = tier != FlavorCommandGate.Tier.BASIC && choice == AccessibilityChoice.InfoAll
+    val showBluetoothRow = tier != FlavorCommandGate.Tier.BASIC
 
     val locationGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
     val cameraGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
     val notificationGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
     } else true
-    val allGranted = accessibilityEnabled && locationGranted && cameraGranted && notificationGranted
+    val activityRecognitionGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACTIVITY_RECOGNITION) == PackageManager.PERMISSION_GRANTED
+    } else true
+    val allGranted = locationGranted && cameraGranted && notificationGranted &&
+        (!showOperateAccessibilityRow || accessibilityEnabled) &&
+        (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || activityRecognitionGranted)
 
     LaunchedEffect(allGranted) {
         if (allGranted) return@LaunchedEffect
@@ -854,8 +958,8 @@ private fun StepAuthorization(
             shape = RoundedCornerShape(16.dp)
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
-                key(authRefreshTick, choice) {
-                    if (choice == AccessibilityChoice.Operate) {
+                key(authRefreshTick, choice, tier) {
+                    if (showOperateAccessibilityRow) {
                         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(stringResource(R.string.main_accessibility_service), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
@@ -877,11 +981,11 @@ private fun StepAuthorization(
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
                         OnboardingPermissionRow(context, Manifest.permission.ACTIVITY_RECOGNITION, R.string.main_activity_recognition, R.string.main_activity_recognition_desc, activityRecognitionLauncher)
                     }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    if (showBluetoothRow && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
                         OnboardingPermissionRow(context, Manifest.permission.BLUETOOTH_CONNECT, R.string.main_bluetooth, R.string.main_bluetooth_desc, bluetoothLauncher)
                     }
-                    if (choice == AccessibilityChoice.InfoAll) {
+                    if (showSensitivePermissionBlock) {
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
                         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
@@ -997,16 +1101,20 @@ private fun StepSummary(viewModel: OnboardingViewModel) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(stringResource(R.string.onboarding_mode), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
-                        when (accChoice) {
-                            AccessibilityChoice.InfoBasic -> stringResource(R.string.onboarding_get_info)
-                            AccessibilityChoice.InfoAll -> stringResource(R.string.onboarding_get_info_all)
-                            AccessibilityChoice.Operate -> stringResource(R.string.onboarding_help_operate)
+                        when {
+                            FlavorCommandGate.currentTier() == FlavorCommandGate.Tier.BASIC ->
+                                stringResource(R.string.onboarding_summary_build_basic)
+                            else -> when (accChoice) {
+                                AccessibilityChoice.InfoBasic -> stringResource(R.string.onboarding_get_info)
+                                AccessibilityChoice.InfoAll -> stringResource(R.string.onboarding_get_info_all)
+                                AccessibilityChoice.Operate -> stringResource(R.string.onboarding_help_operate)
+                            }
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
-                if (accChoice == AccessibilityChoice.Operate) {
+                if (FlavorCommandGate.hasAccessibilityFlavor() && accChoice == AccessibilityChoice.Operate) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(stringResource(R.string.onboarding_current_status), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
@@ -1031,7 +1139,7 @@ private fun StepSummary(viewModel: OnboardingViewModel) {
                         Text(stringResource(R.string.onboarding_http_on_port), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
-                if (hasSshConfig) {
+                if (hasSshConfig && FlavorCommandGate.hasSshFlavor()) {
                     Spacer(modifier = Modifier.height(12.dp))
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
                     Spacer(modifier = Modifier.height(8.dp))

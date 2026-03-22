@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.clawpaw.R
+import com.example.clawpaw.build.FlavorCommandGate
 import com.example.clawpaw.ui.theme.clawpaw_primary
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -948,33 +949,35 @@ private fun ConnectionTabContent(viewModel: MainViewModel) {
                 }
             }
         }
-        Spacer(modifier = Modifier.height(12.dp))
-        // SSH 卡片：放在 Node 下面，独立卡片
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.main_ssh_tunnel), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                    StatusChip(ready = isSshConnected)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                    SmallCircleCheckbox(checked = autoReconnectSsh, onCheckedChange = { autoReconnectSsh = it; AppPrefs.setAutoReconnectSsh(it) })
-                    Spacer(Modifier.width(6.dp))
-                    Text(stringResource(R.string.main_auto_reconnect), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Text(if (isSshConnected) stringResource(R.string.common_connected) else stringResource(R.string.common_disconnected), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (isSshConnected) {
-                        OutlinedButton(onClick = { viewModel.disconnectSsh() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.common_disconnect)) }
-                    } else {
-                        Button(onClick = { viewModel.connectSsh() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.common_connect)) }
+        if (FlavorCommandGate.hasSshFlavor()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            // SSH 卡片：放在 Node 下面，独立卡片（仅 full 构建）
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text(stringResource(R.string.main_ssh_tunnel), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                        StatusChip(ready = isSshConnected)
                     }
-                    OutlinedButton(onClick = { context.startActivity(Intent(context, SshTunnelActivity::class.java)) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.main_ssh_settings)) }
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                        SmallCircleCheckbox(checked = autoReconnectSsh, onCheckedChange = { autoReconnectSsh = it; AppPrefs.setAutoReconnectSsh(it) })
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(R.string.main_auto_reconnect), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Text(if (isSshConnected) stringResource(R.string.common_connected) else stringResource(R.string.common_disconnected), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (isSshConnected) {
+                            OutlinedButton(onClick = { viewModel.disconnectSsh() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.common_disconnect)) }
+                        } else {
+                            Button(onClick = { viewModel.connectSsh() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.common_connect)) }
+                        }
+                        OutlinedButton(onClick = { context.startActivity(Intent(context, SshTunnelActivity::class.java)) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.main_ssh_settings)) }
+                    }
                 }
             }
         }
@@ -1096,7 +1099,19 @@ private fun SettingsTabContent(viewModel: MainViewModel) {
     val smsGranted = smsReadGranted && smsSendGranted
     val phoneGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED
     val notificationListenerEnabled by viewModel.notificationListenerEnabled.collectAsStateWithLifecycle()
-    val allPermissionsGranted = locationGranted && cameraGranted && notificationGranted && isAccessibilityEnabled
+    val flavorTier = FlavorCommandGate.currentTier()
+    val allPermissionsGranted = when (flavorTier) {
+        FlavorCommandGate.Tier.BASIC ->
+            locationGranted && cameraGranted && notificationGranted && activityRecognitionGranted
+        FlavorCommandGate.Tier.SENSITIVE ->
+            locationGranted && cameraGranted && notificationGranted && activityRecognitionGranted &&
+                contactsGranted && calendarGranted && storageOrMediaImagesGranted && smsGranted && phoneGranted &&
+                bluetoothGranted && notificationListenerEnabled
+        FlavorCommandGate.Tier.FULL ->
+            locationGranted && cameraGranted && notificationGranted && isAccessibilityEnabled &&
+                contactsGranted && calendarGranted && storageOrMediaImagesGranted && activityRecognitionGranted &&
+                bluetoothGranted && smsGranted && phoneGranted && notificationListenerEnabled
+    }
 
     LaunchedEffect(allPermissionsGranted, notificationListenerEnabled) {
         if (allPermissionsGranted && notificationListenerEnabled) return@LaunchedEffect
@@ -1236,28 +1251,30 @@ private fun SettingsTabContent(viewModel: MainViewModel) {
         Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Column(modifier = Modifier.padding(20.dp)) {
                 key(permissionRefreshTick) {
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(stringResource(R.string.main_accessibility_service), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                        Spacer(Modifier.weight(1f))
-                        Box(Modifier.clickable { viewModel.openAccessibilitySettings() }.minimumInteractiveComponentSize()) {
-                            StatusChip(ready = isAccessibilityEnabled)
+                    if (FlavorCommandGate.hasAccessibilityFlavor()) {
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(stringResource(R.string.main_accessibility_service), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                            Spacer(Modifier.weight(1f))
+                            Box(Modifier.clickable { viewModel.openAccessibilitySettings() }.minimumInteractiveComponentSize()) {
+                                StatusChip(ready = isAccessibilityEnabled)
+                            }
                         }
+                        HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(stringResource(R.string.main_input_method), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                            IconButton(
+                                onClick = { showImeTipDialog = true },
+                                modifier = Modifier.size(20.dp)
+                            ) {
+                                Icon(Icons.Default.Info, contentDescription = stringResource(R.string.main_info), modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Spacer(Modifier.weight(1f))
+                            Box(Modifier.clickable { viewModel.openInputMethodSettings() }.minimumInteractiveComponentSize()) {
+                                StatusChip(ready = isOurImeDefault)
+                            }
+                        }
+                        HorizontalDivider(Modifier.padding(vertical = 12.dp))
                     }
-                    HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(stringResource(R.string.main_input_method), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                        IconButton(
-                            onClick = { showImeTipDialog = true },
-                            modifier = Modifier.size(20.dp)
-                        ) {
-                            Icon(Icons.Default.Info, contentDescription = stringResource(R.string.main_info), modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Spacer(Modifier.weight(1f))
-                        Box(Modifier.clickable { viewModel.openInputMethodSettings() }.minimumInteractiveComponentSize()) {
-                            StatusChip(ready = isOurImeDefault)
-                        }
-                    }
-                    HorizontalDivider(Modifier.padding(vertical = 12.dp))
                     PermissionSettingRow(context = context, permission = Manifest.permission.ACCESS_FINE_LOCATION, label = stringResource(R.string.main_location), desc = stringResource(R.string.main_location_desc), onRequestPermission = { locationLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) })
                     HorizontalDivider(Modifier.padding(vertical = 12.dp))
                     PermissionSettingRow(context = context, permission = Manifest.permission.CAMERA, label = stringResource(R.string.main_camera), desc = stringResource(R.string.main_camera_desc), onRequestPermission = { cameraLauncher.launch(Manifest.permission.CAMERA) })
@@ -1265,56 +1282,61 @@ private fun SettingsTabContent(viewModel: MainViewModel) {
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
                         PermissionSettingRow(context = context, permission = Manifest.permission.POST_NOTIFICATIONS, label = stringResource(R.string.main_notification), desc = stringResource(R.string.main_notification_desc), onRequestPermission = { notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) })
                     }
-                    HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(stringResource(R.string.main_notification_listener), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                            Text(stringResource(R.string.main_notification_listener_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (flavorTier != FlavorCommandGate.Tier.BASIC) {
+                        HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(stringResource(R.string.main_notification_listener), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                                Text(stringResource(R.string.main_notification_listener_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (notificationListenerEnabled) {
+                                Text(stringResource(R.string.main_enabled), style = MaterialTheme.typography.labelSmall, color = clawpaw_primary)
+                            } else {
+                                OutlinedButton(
+                                    onClick = { viewModel.openNotificationListenerSettings() },
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.height(36.dp)
+                                ) { Text(stringResource(R.string.common_go_auth)) }
+                            }
                         }
-                        if (notificationListenerEnabled) {
-                            Text(stringResource(R.string.main_enabled), style = MaterialTheme.typography.labelSmall, color = clawpaw_primary)
-                        } else {
-                            OutlinedButton(
-                                onClick = { viewModel.openNotificationListenerSettings() },
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.height(36.dp)
-                            ) { Text(stringResource(R.string.common_go_auth)) }
+                        HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                        PermissionSettingRow(context = context, permission = Manifest.permission.READ_CALENDAR, label = stringResource(R.string.main_calendar), desc = stringResource(R.string.main_calendar_desc), onRequestPermission = { calendarLauncher.launch(Manifest.permission.READ_CALENDAR) })
+                        HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                        PermissionSettingRow(
+                            context = context,
+                            permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE,
+                            label = stringResource(R.string.main_photos_storage),
+                            desc = stringResource(R.string.main_photos_storage_desc),
+                            onRequestPermission = {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) storageLauncher.launch(Manifest.permission.READ_MEDIA_IMAGES)
+                                else storageLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+                            }
+                        )
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                            PermissionSettingRow(context = context, permission = Manifest.permission.ACTIVITY_RECOGNITION, label = stringResource(R.string.main_activity_recognition), desc = stringResource(R.string.main_activity_recognition_desc), onRequestPermission = { activityRecognitionLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION) })
                         }
-                    }
-                    HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                    PermissionSettingRow(context = context, permission = Manifest.permission.READ_CALENDAR, label = stringResource(R.string.main_calendar), desc = stringResource(R.string.main_calendar_desc), onRequestPermission = { calendarLauncher.launch(Manifest.permission.READ_CALENDAR) })
-                    HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                    PermissionSettingRow(
-                        context = context,
-                        permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE,
-                        label = stringResource(R.string.main_photos_storage),
-                        desc = stringResource(R.string.main_photos_storage_desc),
-                        onRequestPermission = {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) storageLauncher.launch(Manifest.permission.READ_MEDIA_IMAGES)
-                            else storageLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                            PermissionSettingRow(context = context, permission = Manifest.permission.BLUETOOTH_CONNECT, label = stringResource(R.string.main_bluetooth), desc = stringResource(R.string.main_bluetooth_desc), onRequestPermission = { bluetoothLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT) })
                         }
-                    )
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                        PermissionSettingRow(context = context, permission = Manifest.permission.READ_CONTACTS, label = stringResource(R.string.main_contacts), desc = stringResource(R.string.main_contacts_desc), onRequestPermission = { contactsLauncher.launch(Manifest.permission.READ_CONTACTS) })
+                        HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(stringResource(R.string.main_sms), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                                Text(stringResource(R.string.main_sms_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (smsGranted) Text(stringResource(R.string.main_permission_granted), style = MaterialTheme.typography.labelSmall, color = clawpaw_primary)
+                            else OutlinedButton(onClick = { smsLauncher.launch(arrayOf(Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS)) }, shape = RoundedCornerShape(10.dp), modifier = Modifier.height(36.dp)) { Text(stringResource(R.string.common_go_auth)) }
+                        }
+                        HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                        PermissionSettingRow(context = context, permission = Manifest.permission.CALL_PHONE, label = stringResource(R.string.main_phone), desc = stringResource(R.string.main_phone_desc), onRequestPermission = { phoneLauncher.launch(Manifest.permission.CALL_PHONE) })
+                    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
                         PermissionSettingRow(context = context, permission = Manifest.permission.ACTIVITY_RECOGNITION, label = stringResource(R.string.main_activity_recognition), desc = stringResource(R.string.main_activity_recognition_desc), onRequestPermission = { activityRecognitionLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION) })
                     }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                        PermissionSettingRow(context = context, permission = Manifest.permission.BLUETOOTH_CONNECT, label = stringResource(R.string.main_bluetooth), desc = stringResource(R.string.main_bluetooth_desc), onRequestPermission = { bluetoothLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT) })
-                    }
-                    HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                    PermissionSettingRow(context = context, permission = Manifest.permission.READ_CONTACTS, label = stringResource(R.string.main_contacts), desc = stringResource(R.string.main_contacts_desc), onRequestPermission = { contactsLauncher.launch(Manifest.permission.READ_CONTACTS) })
-                    HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(stringResource(R.string.main_sms), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                            Text(stringResource(R.string.main_sms_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        if (smsGranted) Text(stringResource(R.string.main_permission_granted), style = MaterialTheme.typography.labelSmall, color = clawpaw_primary)
-                        else OutlinedButton(onClick = { smsLauncher.launch(arrayOf(Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS)) }, shape = RoundedCornerShape(10.dp), modifier = Modifier.height(36.dp)) { Text(stringResource(R.string.common_go_auth)) }
-                    }
-                    HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                    PermissionSettingRow(context = context, permission = Manifest.permission.CALL_PHONE, label = stringResource(R.string.main_phone), desc = stringResource(R.string.main_phone_desc), onRequestPermission = { phoneLauncher.launch(Manifest.permission.CALL_PHONE) })
                 }
             }
         }

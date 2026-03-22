@@ -159,6 +159,10 @@
     <string name="chat_font_small">Small</string>
 
     <!-- Gateway Settings -->
+    <string name="gateway_profile_title">Profiles</string>
+    <string name="gateway_profile_hint">Up to 3 Gateway profiles. Switching saves the current form to the active slot (including unsaved edits). Device keys are shared; disconnect and reconnect after switching if needed.</string>
+    <string name="gateway_profile_chip">Profile %1$d</string>
+    <string name="gateway_profile_switched_toast">Switched to profile %1$d. Disconnect and reconnect Gateway if you were connected.</string>
     <string name="gateway_title">OpenClaw Gateway settings</string>
     <string name="gateway_purpose">Register this device as an OpenClaw node so the host can control it (tap, swipe, type, etc.).</string>
     <string name="gateway_prereq">Requirements: ① OpenClaw + Gateway running on host; ② Same network (WiFi, Tailscale, etc.).</string>
@@ -228,6 +232,9 @@
     <string name="onboarding_permission_hint">These permissions improve node capabilities. Optional; you can grant later in settings.</string>
     <string name="onboarding_remote_operate">Remote control (if needed)</string>
     <string name="onboarding_summary_hint">Tap Get started to open the main screen. Change connection and node name in Node settings, or set up SSH.</string>
+    <string name="onboarding_data_scope_title">Choose data scope</string>
+    <string name="onboarding_data_scope_subtitle">This build has no on-screen remote control (no accessibility). Choose what the host may read; you\'ll grant permissions on the next step.</string>
+    <string name="onboarding_summary_build_basic">Basic build (status only: location, battery, WiFi, steps, etc.)</string>
     <string name="onboarding_node_no_accessibility">Not required for Node-only; enable if you need remote control.</string>
     <string name="onboarding_no_accessibility_desc">Without accessibility: location, battery, WiFi only; no tap, swipe, or type.</string>
     <string name="onboarding_with_accessibility_desc">With accessibility: tap, swipe, type, screenshot, etc.</string>

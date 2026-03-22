@@ -37,6 +37,7 @@ import com.example.clawpaw.hardware.RingerHelper
 import com.example.clawpaw.ssh.SshPrefs
 import com.example.clawpaw.ssh.SshTunnelManager
 import org.json.JSONObject
+import com.example.clawpaw.build.FlavorCommandGate
 import com.example.clawpaw.util.CommandLog
 import com.example.clawpaw.util.Logger
 import kotlinx.coroutines.CoroutineScope
@@ -135,6 +136,9 @@ class GatewayConnectionService : Service() {
             scope = scope,
             requestHandler = { method, params ->
                 withContext(Dispatchers.Default) {
+                    if (!FlavorCommandGate.isNodeInvokeAllowed(method)) {
+                        return@withContext Result.failure(IllegalStateException("command_not_in_build: $method"))
+                    }
                     when (method) {
                         "location_get", "location.get" -> kotlin.runCatching { JSONObject(PhoneStateHelper.getLocation(ctx)) }
                         "get_wifi_name" -> kotlin.runCatching { PhoneStateHelper.getWifiName(ctx) }

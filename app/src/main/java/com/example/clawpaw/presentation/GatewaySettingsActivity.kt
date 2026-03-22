@@ -18,6 +18,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,9 +39,9 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.clawpaw.R
+import com.example.clawpaw.data.storage.GatewayProfile
 import com.example.clawpaw.gateway.GatewayConnection
 import com.example.clawpaw.ui.theme.ClawPawTheme
 
@@ -75,6 +76,8 @@ fun GatewaySettingsScreen(
     val nodeHandshakeDone by viewModel.nodeHandshakeDone.collectAsStateWithLifecycle()
     val nodeDisplayName by viewModel.nodeDisplayName.collectAsStateWithLifecycle(initialValue = "")
     val gatewayPort by viewModel.gatewayPort.collectAsStateWithLifecycle(initialValue = 18789)
+    val gatewayToken by viewModel.gatewayToken.collectAsStateWithLifecycle()
+    val activeProfileIndex by viewModel.activeProfileIndex.collectAsStateWithLifecycle()
     var editHost by remember(host) { mutableStateOf(host) }
     var editNodeName by remember(nodeDisplayName) { mutableStateOf(nodeDisplayName) }
     var editPort by remember(gatewayPort) { mutableStateOf(gatewayPort.toString()) }
@@ -82,6 +85,17 @@ fun GatewaySettingsScreen(
     var editPassword by remember(gatewayPassword) { mutableStateOf(gatewayPassword) }
     var showPassword by remember { mutableStateOf(false) }
     var showClearKeysConfirm by remember { mutableStateOf(false) }
+
+    fun buildProfileFromEdits(): GatewayProfile = GatewayProfile(
+        host = editHost.trim(),
+        port = editPort.toIntOrNull() ?: gatewayPort,
+        nodeDisplayName = editNodeName.trim(),
+        originalToken = editOriginalToken.trim(),
+        nodeToken = nodeToken,
+        operatorToken = operatorToken,
+        gatewayToken = gatewayToken,
+        password = editPassword.trim(),
+    )
 
     val notificationLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -122,6 +136,48 @@ fun GatewaySettingsScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = stringResource(R.string.gateway_prereq),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(
+                        text = stringResource(R.string.gateway_profile_title),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        for (i in 0..2) {
+                            FilterChip(
+                                selected = activeProfileIndex == i,
+                                onClick = {
+                                    if (activeProfileIndex == i) return@FilterChip
+                                    viewModel.switchGatewayProfile(i, buildProfileFromEdits())
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.gateway_profile_switched_toast, i + 1),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                label = { Text(stringResource(R.string.gateway_profile_chip, i + 1)) }
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = stringResource(R.string.gateway_profile_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

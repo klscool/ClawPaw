@@ -8,16 +8,27 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.clawpaw.data.api.RetrofitClient
 import com.example.clawpaw.data.storage.DebugPrefs
+import com.example.clawpaw.data.storage.GatewayProfile
+import com.example.clawpaw.data.storage.GatewayProfileStore
 import com.example.clawpaw.gateway.GatewayConnection
 import com.example.clawpaw.gateway.GatewayConnection.ConnectionState
 import com.example.clawpaw.service.ClawPawAccessibilityService
 import com.example.clawpaw.service.GatewayConnectionService
 import com.example.clawpaw.util.Logger
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 class GatewaySettingsViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val _activeProfileIndex = MutableStateFlow(GatewayProfileStore.getActiveIndex())
+    val activeProfileIndex = _activeProfileIndex.asStateFlow()
+
+    init {
+        _activeProfileIndex.value = GatewayProfileStore.getActiveIndex()
+    }
 
     val gatewayHost = RetrofitClient.serverHost.stateIn(
         viewModelScope,
@@ -126,6 +137,19 @@ class GatewaySettingsViewModel(application: Application) : AndroidViewModel(appl
 
     fun updateGatewayPort(port: Int) {
         RetrofitClient.setGatewayPort(port)
+    }
+
+    /**
+     * 切换配置槽：先把当前表单（含未点保存的编辑）写入旧槽，再加载新槽到全局。
+     */
+    fun switchGatewayProfile(newIndex: Int, currentForm: GatewayProfile) {
+        if (newIndex !in 0..2 || newIndex == _activeProfileIndex.value) return
+        val old = _activeProfileIndex.value
+        GatewayProfileStore.saveSlot(old, currentForm)
+        val loaded = GatewayProfileStore.loadSlot(newIndex)
+        RetrofitClient.applyGatewayProfile(loaded)
+        GatewayProfileStore.setActiveIndex(newIndex)
+        _activeProfileIndex.value = newIndex
     }
 
     fun connect() {

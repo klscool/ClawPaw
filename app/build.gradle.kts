@@ -12,10 +12,29 @@ android {
         applicationId = "com.example.clawpaw"
         minSdk = 29
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = 4
+        versionName = "1.0.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    flavorDimensions += "tier"
+    productFlavors {
+        create("basic") {
+            dimension = "tier"
+            applicationId = "com.example.clawpaw.basic"
+            buildConfigField("String", "BUILD_TIER", "\"BASIC\"")
+        }
+        create("sensitive") {
+            dimension = "tier"
+            applicationId = "com.example.clawpaw.sensitive"
+            buildConfigField("String", "BUILD_TIER", "\"SENSITIVE\"")
+        }
+        create("full") {
+            dimension = "tier"
+            applicationId = "com.example.clawpaw"
+            buildConfigField("String", "BUILD_TIER", "\"FULL\"")
+        }
     }
 
     buildTypes {
@@ -37,6 +56,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources {

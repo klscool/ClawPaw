@@ -21,6 +21,7 @@ import com.example.clawpaw.state.PhoneStateHelper
 import com.example.clawpaw.hardware.PhoneHelper
 import com.example.clawpaw.hardware.RingerHelper
 import com.example.clawpaw.state.WifiHelper
+import com.example.clawpaw.build.FlavorCommandGate
 import com.example.clawpaw.util.Logger
 import fi.iki.elonen.NanoHTTPD
 import kotlin.coroutines.resume
@@ -52,9 +53,13 @@ class NodeHttpServer(
                 uri.equals("/api/status", ignoreCase = true) && Method.GET == method ->
                     apiStatus()
                 uri.equals("/api/layout", ignoreCase = true) && Method.GET == method ->
-                    apiLayout()
+                    if (!FlavorCommandGate.allowsHttpLayoutAndScreenshot()) {
+                        json(403, JSONObject().put("error", "not_in_build").put("hint", "layout requires full flavor"))
+                    } else apiLayout()
                 uri.equals("/api/screenshot", ignoreCase = true) && Method.GET == method ->
-                    apiScreenshot()
+                    if (!FlavorCommandGate.allowsHttpLayoutAndScreenshot()) {
+                        json(403, JSONObject().put("error", "not_in_build").put("hint", "screenshot requires full flavor"))
+                    } else apiScreenshot()
                 uri.equals("/api/execute", ignoreCase = true) && Method.POST == method ->
                     apiExecute(session)
                 uri.equals("/api/task", ignoreCase = true) && Method.POST == method ->
@@ -165,6 +170,9 @@ class NodeHttpServer(
         val action = body.optString("action", "")
         if (action.isEmpty()) return json(400, JSONObject().put("error", "action_required"))
         com.example.clawpaw.util.CommandLog.addEntry("HTTP", action)
+        if (!FlavorCommandGate.isHttpExecuteAllowed(action)) {
+            return json(403, JSONObject().put("error", "not_in_build").put("action", action))
+        }
 
         // 状态 / 硬件类：不依赖无障碍，直接处理
         when (action) {

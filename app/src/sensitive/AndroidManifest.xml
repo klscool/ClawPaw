@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.example.clawpaw">
+
+    <uses-permission
+        android:name="android.permission.BIND_ACCESSIBILITY_SERVICE"
+        tools:ignore="ProtectedPermissions"
+        tools:node="remove" />
+
+    <application
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round">
+        <service
+            android:name=".service.ClawPawAccessibilityService"
+            tools:node="remove" />
+        <service
+            android:name=".service.ClawPawInputMethodService"
+            tools:node="remove" />
+    </application>
+</manifest>

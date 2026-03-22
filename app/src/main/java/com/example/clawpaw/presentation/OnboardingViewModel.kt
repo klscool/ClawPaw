@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Intent
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
+import com.example.clawpaw.build.FlavorCommandGate
 import com.example.clawpaw.data.api.RetrofitClient
 import com.example.clawpaw.data.storage.MainPrefs
 import com.example.clawpaw.data.storage.OnboardingPrefs
@@ -50,24 +51,34 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
     private val _accessibilityEnabled = MutableStateFlow(ClawPawAccessibilityService.getInstance() != null)
     val accessibilityEnabled: StateFlow<Boolean> = _accessibilityEnabled.asStateFlow()
 
-    val totalSteps = 5
+    /** 基础包跳过「能力/数据范围」页，敏感包与完整包保留一页（内容不同） */
+    fun showsPreambleStep(): Boolean = FlavorCommandGate.currentTier() != FlavorCommandGate.Tier.BASIC
+
+    fun onboardingStepCount(): Int = if (showsPreambleStep()) 5 else 4
 
     fun refreshAccessibilityState() {
         _accessibilityEnabled.value = ClawPawAccessibilityService.getInstance() != null
     }
 
-    fun stepIndex(): Int = when (_currentStep.value) {
+    /** 底部进度条当前下标（0..onboardingStepCount-1） */
+    fun progressIndex(): Int = when (_currentStep.value) {
         OnboardingStep.Welcome -> 0
         OnboardingStep.Accessibility -> 1
-        OnboardingStep.Connection -> 2
-        OnboardingStep.Authorization -> 3
-        OnboardingStep.Summary -> 4
+        OnboardingStep.Connection -> if (showsPreambleStep()) 2 else 1
+        OnboardingStep.Authorization -> if (showsPreambleStep()) 3 else 2
+        OnboardingStep.Summary -> if (showsPreambleStep()) 4 else 3
         else -> 0
     }
 
     fun canGoNext(): Boolean = when (_currentStep.value) {
         OnboardingStep.Welcome -> true
-        OnboardingStep.Accessibility -> true
+        OnboardingStep.Accessibility -> {
+            if (!FlavorCommandGate.hasAccessibilityFlavor()) true
+            else when (_accessibilityChoice.value) {
+                AccessibilityChoice.Operate -> _accessibilityEnabled.value
+                else -> true
+            }
+        }
         OnboardingStep.Connection -> (_useGateway.value && _connectionHost.value.trim().isNotBlank()) || _useHttpService.value
         OnboardingStep.Authorization -> true
         OnboardingStep.Summary -> true
@@ -76,7 +87,9 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
 
     fun nextStep() {
         when (_currentStep.value) {
-            OnboardingStep.Welcome -> _currentStep.value = OnboardingStep.Accessibility
+            OnboardingStep.Welcome -> {
+                _currentStep.value = if (showsPreambleStep()) OnboardingStep.Accessibility else OnboardingStep.Connection
+            }
             OnboardingStep.Accessibility -> _currentStep.value = OnboardingStep.Connection
             OnboardingStep.Connection -> {
                 if (_useGateway.value) {
@@ -100,7 +113,9 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
         when (_currentStep.value) {
             OnboardingStep.Welcome -> { }
             OnboardingStep.Accessibility -> _currentStep.value = OnboardingStep.Welcome
-            OnboardingStep.Connection -> _currentStep.value = OnboardingStep.Accessibility
+            OnboardingStep.Connection -> {
+                _currentStep.value = if (showsPreambleStep()) OnboardingStep.Accessibility else OnboardingStep.Welcome
+            }
             OnboardingStep.Authorization -> _currentStep.value = OnboardingStep.Connection
             OnboardingStep.Summary -> _currentStep.value = OnboardingStep.Authorization
             else -> { }

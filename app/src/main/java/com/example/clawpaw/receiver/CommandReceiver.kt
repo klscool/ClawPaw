@@ -27,6 +27,7 @@ import com.example.clawpaw.hardware.VolumeHelper
 import com.example.clawpaw.service.ClawPawAccessibilityService
 import com.example.clawpaw.state.PhoneStateHelper
 import com.example.clawpaw.state.WifiHelper
+import com.example.clawpaw.build.FlavorCommandGate
 import com.example.clawpaw.util.CommandLog
 import com.example.clawpaw.util.Logger
 import org.json.JSONException
@@ -82,6 +83,13 @@ class CommandReceiver : BroadcastReceiver() {
                     Logger.cmd(TAG, "执行命令: $action")
                     CommandLog.addEntry("ADB", action)
                     DebugPrefs.showCommandToastIfEnabled(context, action)
+
+                    if (!FlavorCommandGate.isNodeInvokeAllowed(action)) {
+                        showToast(context, "此安装包不包含该命令: $action")
+                        setResultCode(RESULT_CANCELED)
+                        setResultData("""{"ok":false,"error":"not_in_build","action":"$action"}""")
+                        return
+                    }
 
                     // 状态类、硬件类：不依赖无障碍，优先处理
                     when (action) {

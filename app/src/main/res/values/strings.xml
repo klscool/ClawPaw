@@ -159,6 +159,10 @@
     <string name="chat_font_small">小</string>
 
     <!-- Gateway Settings -->
+    <string name="gateway_profile_title">多套配置</string>
+    <string name="gateway_profile_hint">可在 3 套配置间切换。切换前会把当前页内容写入当前槽（含未点「保存」的编辑）。设备密钥共用；切换后若已连接请断开再连。</string>
+    <string name="gateway_profile_chip">配置 %1$d</string>
+    <string name="gateway_profile_switched_toast">已切换到配置 %1$d。若已连接 Gateway，请先断开再连接。</string>
     <string name="gateway_title">OpenClaw Gateway设置</string>
     <string name="gateway_purpose">作用：把本机注册为 OpenClaw 的「节点」，让电脑端可通过 OpenClaw 远程控制本机（点击、滑动、输入等）。</string>
     <string name="gateway_prereq">前提条件：① 电脑端已运行 OpenClaw 并开启 Gateway；② 本机与电脑网络互通（同 WiFi、Tailscale 等）。</string>
@@ -228,6 +232,9 @@
     <string name="onboarding_permission_hint">以下权限可提升节点能力，非强制。可逐项申请或稍后在设置中申请。</string>
     <string name="onboarding_remote_operate">远程操作手机（若需）</string>
     <string name="onboarding_summary_hint">点击「开始使用」进入主页。可在「Node 设置」中修改连接与节点名称，或配置 SSH。</string>
+    <string name="onboarding_data_scope_title">选择数据范围</string>
+    <string name="onboarding_data_scope_subtitle">本安装包不含屏幕远程控制（无无障碍）。请选择允许主机读取的信息类型；下一步可逐项授权。</string>
+    <string name="onboarding_summary_build_basic">基础安装包（仅状态类信息，如定位、电量、WiFi、步数等）</string>
     <string name="onboarding_node_no_accessibility">作为 Node 连接时无需开启；若需远程操作手机，请开启。</string>
     <string name="onboarding_no_accessibility_desc">不开启无障碍。可获取定位、电量、WiFi 等信息，无法远程点击、滑动或输入。</string>
     <string name="onboarding_with_accessibility_desc">开启无障碍后可远程点击、滑动、输入、截图等。</string>
