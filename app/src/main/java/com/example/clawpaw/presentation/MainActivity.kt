@@ -86,6 +86,7 @@ import com.example.clawpaw.service.NotificationListener
 import com.example.clawpaw.util.CommandLogEntry
 import com.example.clawpaw.util.Logger
 import com.example.clawpaw.service.ClawPawAccessibilityService
+import com.example.clawpaw.ui.chat.ChatMessageRichContent
 import com.example.clawpaw.ui.theme.ClawPawTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -292,13 +293,26 @@ fun MainScreen(viewModel: MainViewModel) {
 private fun friendlySessionName(key: String, displayName: String?): String =
     displayName?.takeIf { it.isNotBlank() } ?: key.substringAfterLast(":").removePrefix("g-").ifBlank { key }
 
-/** 近 10 分钟：直接显示在「近10分钟」分组 */
-private const val RECENT_SESSION_MS = 10 * 60 * 1000L
-/** 10m～120m 需展开；超过 120 分钟的不显示 */
-private const val SESSION_CUTOFF_MS = 120 * 60 * 1000L
+/** 非「主会话」超过该时间未活跃则从选单隐藏；全局 main 与各 agent 的 *:main 始终保留 */
+private const val SESSION_STALE_HIDE_MS = 15 * 60 * 1000L
+
+/** 全局 main，或某 agent 下的主会话（key 最后一段为 main，如 foo:main） */
+private fun isAgentMainSessionKey(key: String): Boolean =
+    key == "main" || (key.contains(':') && key.substringAfterLast(':') == "main")
+
+private fun shouldShowSessionInPicker(entry: ChatSessionEntry, now: Long, staleMs: Long = SESSION_STALE_HIDE_MS): Boolean {
+    if (isAgentMainSessionKey(entry.key)) return true
+    val t = entry.updatedAtMs ?: return true
+    return t >= now - staleMs
+}
 private const val MAX_CHAT_ATTACHMENTS = 8
 /** 单个附件最大约 3MB（过大会导致发送超时或 Gateway 拒绝） */
 private const val MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024
+/** 会话选单默认展开条数，其余折叠在「显示更多」下 */
+private const val CHAT_SESSION_MENU_MAX_INITIAL = 3
+private const val SHOW_CHAT_IMAGE_UPLOAD = true
+/** 通用文件附件入口隐藏，仅保留图片 */
+private const val SHOW_CHAT_FILE_ATTACHMENT_UPLOAD = false
 
 @Composable
 private fun NodeLinkExpandableContent(context: Context, viewModel: MainViewModel) {
@@ -438,17 +452,37 @@ private fun ChatTabContent(viewModel: MainViewModel) {
     val pickFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { addUrisToAttachments(it) }
     var attachMenuExpanded by remember { mutableStateOf(false) }
     var sessionMenuExpanded by remember { mutableStateOf(false) }
-    var sessionExpandMore by remember { mutableStateOf(false) }
-    var roleMenuExpanded by remember { mutableStateOf(false) }
+    var sessionMenuShowMore by remember { mutableStateOf(false) }
+    var filterMenuExpanded by remember { mutableStateOf(false) }
     var timestampVisibleIndex by remember { mutableStateOf<Int?>(null) }
+    var messageContextMenuIndex by remember { mutableStateOf<Int?>(null) }
+    var selectTextDialogContent by remember { mutableStateOf<String?>(null) }
     val timeFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()) }
     val listState = rememberLazyListState()
     val now = System.currentTimeMillis()
-    val sessionOptions = if (sessions.isNotEmpty()) sessions else if (operatorConnected) listOf(ChatSessionEntry("main", stringResource(R.string.main_chat_session_default), null)) else emptyList()
-    val validSessions = sessionOptions.filter { it.updatedAtMs == null || it.updatedAtMs >= now - SESSION_CUTOFF_MS }
-    val recentSessions = validSessions.filter { it.updatedAtMs != null && it.updatedAtMs >= now - RECENT_SESSION_MS }
-    val otherSessions = validSessions.filter { it.updatedAtMs == null || it.updatedAtMs < now - RECENT_SESSION_MS }
-    val currentSessionLabel = validSessions.firstOrNull { it.key == sessionKey }?.let { friendlySessionName(it.key, it.displayName) } ?: sessionOptions.firstOrNull { it.key == sessionKey }?.let { friendlySessionName(it.key, it.displayName) } ?: friendlySessionName(sessionKey, null)
+    val defaultMainEntry = ChatSessionEntry("main", stringResource(R.string.main_chat_session_default), null)
+    val sessionOptions = if (sessions.isNotEmpty()) sessions else if (operatorConnected) listOf(defaultMainEntry) else emptyList()
+    val visibleSessionsRaw = sessionOptions.filter { shouldShowSessionInPicker(it, now) }
+    val sessionsForMenu = run {
+        val base = if (visibleSessionsRaw.isNotEmpty()) visibleSessionsRaw else if (operatorConnected) listOf(defaultMainEntry) else emptyList()
+        base.distinctBy { it.key }.sortedWith(
+            compareBy<ChatSessionEntry> { e ->
+                when {
+                    e.key == "main" -> 0
+                    isAgentMainSessionKey(e.key) -> 1
+                    else -> 2
+                }
+            }.thenByDescending { it.updatedAtMs ?: 0L }
+        )
+    }
+    val currentSessionLabel = sessionsForMenu.firstOrNull { it.key == sessionKey }?.let { friendlySessionName(it.key, it.displayName) }
+        ?: sessionOptions.firstOrNull { it.key == sessionKey }?.let { friendlySessionName(it.key, it.displayName) }
+        ?: friendlySessionName(sessionKey, null)
+    val sessionsMenuKeySig = sessionsForMenu.joinToString("\u0001") { "${it.key}\u0002${it.updatedAtMs ?: -1L}" }
+    val sessionMenuHead = remember(sessionsMenuKeySig) { sessionsForMenu.take(CHAT_SESSION_MENU_MAX_INITIAL) }
+    val sessionMenuTail = remember(sessionsMenuKeySig) { sessionsForMenu.drop(CHAT_SESSION_MENU_MAX_INITIAL) }
+    val chatAttachmentUploadEnabled = SHOW_CHAT_IMAGE_UPLOAD || SHOW_CHAT_FILE_ATTACHMENT_UPLOAD
+    LaunchedEffect(sessionMenuExpanded) { if (!sessionMenuExpanded) sessionMenuShowMore = false }
     val displayedMessages = remember(messages, roleFilter) { messages.filter { it.role in roleFilter } }
 
     AppPrefs.init(context)
@@ -479,11 +513,14 @@ private fun ChatTabContent(viewModel: MainViewModel) {
             }
         }
     }
-    LaunchedEffect(displayedMessages.size, streamingText) {
-        val last = displayedMessages.size + if (streamingText != null) 1 else 0
+    // 仅在列表条数变化或流式「出现/消失」时滚到底部；流式正文逐字更新不参与，避免一直打断阅读
+    val streamingBubbleVisible = streamingText != null
+    LaunchedEffect(displayedMessages.size, streamingBubbleVisible) {
+        val last = displayedMessages.size + if (streamingBubbleVisible) 1 else 0
         if (last > 0) listState.scrollToItem(last - 1)
     }
 
+    Box(Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -501,7 +538,7 @@ private fun ChatTabContent(viewModel: MainViewModel) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                if (operatorConnected && (validSessions.isNotEmpty() || sessionOptions.isNotEmpty())) {
+                if (operatorConnected && sessionsForMenu.isNotEmpty()) {
                     Box {
                         Row(
                             modifier = Modifier
@@ -522,35 +559,44 @@ private fun ChatTabContent(viewModel: MainViewModel) {
                             expanded = sessionMenuExpanded,
                             onDismissRequest = { sessionMenuExpanded = false }
                         ) {
-                            if (recentSessions.isNotEmpty()) {
-                                Text(stringResource(R.string.main_recent_10min), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                                recentSessions.forEach { entry ->
-                                    DropdownMenuItem(
-                                        text = { Text(friendlySessionName(entry.key, entry.displayName), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                        onClick = {
-                                            viewModel.switchChatSession(entry.key)
-                                            sessionMenuExpanded = false
-                                        }
-                                    )
-                                }
+                            sessionMenuHead.forEach { entry ->
+                                DropdownMenuItem(
+                                    text = { Text(friendlySessionName(entry.key, entry.displayName), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                    onClick = {
+                                        viewModel.switchChatSession(entry.key)
+                                        sessionMenuExpanded = false
+                                    }
+                                )
                             }
-                            if (otherSessions.isNotEmpty()) {
+                            if (sessionMenuTail.isNotEmpty()) {
                                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                                Surface(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { sessionExpandMore = !sessionExpandMore },
-                                    color = MaterialTheme.colorScheme.surface
-                                ) {
-                                    Text(
-                                        if (sessionExpandMore) stringResource(R.string.main_collapse) else stringResource(R.string.main_expand_more, otherSessions.size),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-                                    )
-                                }
-                                if (sessionExpandMore) {
-                                    Text(stringResource(R.string.main_10min_2hr), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                                    otherSessions.forEach { entry ->
+                                if (!sessionMenuShowMore) {
+                                    Surface(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { sessionMenuShowMore = true },
+                                        color = MaterialTheme.colorScheme.surface
+                                    ) {
+                                        Text(
+                                            stringResource(R.string.main_expand_more, sessionMenuTail.size),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                                        )
+                                    }
+                                } else {
+                                    Surface(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { sessionMenuShowMore = false },
+                                        color = MaterialTheme.colorScheme.surface
+                                    ) {
+                                        Text(
+                                            stringResource(R.string.main_collapse),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                                        )
+                                    }
+                                    sessionMenuTail.forEach { entry ->
                                         DropdownMenuItem(
                                             text = { Text(friendlySessionName(entry.key, entry.displayName), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                             onClick = {
@@ -568,15 +614,17 @@ private fun ChatTabContent(viewModel: MainViewModel) {
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
+                val defaultRoleFilter = remember { setOf("user", "assistant") }
+                val filterActive = showRaw || roleFilter != defaultRoleFilter
                 Box {
                     FilterChip(
-                        selected = false,
-                        onClick = { roleMenuExpanded = true },
-                        label = { Text(stringResource(R.string.main_role), style = MaterialTheme.typography.labelSmall) }
+                        selected = filterActive,
+                        onClick = { filterMenuExpanded = true },
+                        label = { Text(stringResource(R.string.main_filter), style = MaterialTheme.typography.labelSmall) }
                     )
                     DropdownMenu(
-                        expanded = roleMenuExpanded,
-                        onDismissRequest = { roleMenuExpanded = false }
+                        expanded = filterMenuExpanded,
+                        onDismissRequest = { filterMenuExpanded = false }
                     ) {
                         val showChat = "user" in roleFilter && "assistant" in roleFilter
                         DropdownMenuItem(
@@ -610,11 +658,18 @@ private fun ChatTabContent(viewModel: MainViewModel) {
                                 )
                             }
                         )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(checked = showRaw, onCheckedChange = null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(stringResource(R.string.main_raw))
+                                }
+                            },
+                            onClick = { viewModel.toggleShowRawChatMessage() }
+                        )
                     }
-                }
-                Spacer(Modifier.width(4.dp))
-                TextButton(onClick = { viewModel.toggleShowRawChatMessage() }) {
-                    Text(if (showRaw) stringResource(R.string.main_readable) else stringResource(R.string.main_raw), style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
@@ -671,6 +726,7 @@ private fun ChatTabContent(viewModel: MainViewModel) {
                 }
                 val showTs = timestampVisibleIndex == index && msg.timestampMs != null
                 val toCopy = if (displayContent.isNotEmpty()) displayContent else msg.content
+                Box(Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -680,10 +736,7 @@ private fun ChatTabContent(viewModel: MainViewModel) {
                                 if (msg.timestampMs != null) timestampVisibleIndex = if (timestampVisibleIndex == index) null else index
                             },
                             onLongClick = {
-                                if (toCopy.isNotEmpty()) {
-                                    (context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager)?.setPrimaryClip(ClipData.newPlainText(null, toCopy))
-                                    Toast.makeText(context, context.getString(R.string.common_copied), Toast.LENGTH_SHORT).show()
-                                }
+                                if (toCopy.isNotEmpty()) messageContextMenuIndex = index
                             }
                         ),
                     horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
@@ -705,15 +758,37 @@ private fun ChatTabContent(viewModel: MainViewModel) {
                                 shape = RoundedCornerShape(10.dp),
                                 color = if (isUser) clawpaw_primary.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant
                             ) {
-                                Text(
-                                    displayContent,
-                                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = chatFontSizeSp.sp),
-                                    color = MaterialTheme.colorScheme.onSurface,
+                                ChatMessageRichContent(
+                                    text = displayContent,
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = chatFontSizeSp.sp),
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                                 )
                             }
                         }
                     }
+                }
+                DropdownMenu(
+                    expanded = messageContextMenuIndex == index,
+                    onDismissRequest = { messageContextMenuIndex = null }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.main_chat_action_select_text)) },
+                        onClick = {
+                            messageContextMenuIndex = null
+                            selectTextDialogContent = toCopy
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.common_copy)) },
+                        onClick = {
+                            messageContextMenuIndex = null
+                            if (toCopy.isNotEmpty()) {
+                                (context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager)?.setPrimaryClip(ClipData.newPlainText(null, toCopy))
+                                Toast.makeText(context, context.getString(R.string.common_copied), Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
+                }
                 }
             }
             if (streamingText != null) {
@@ -728,14 +803,18 @@ private fun ChatTabContent(viewModel: MainViewModel) {
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.Top
                             ) {
-                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                CircularProgressIndicator(
+                                    modifier = Modifier
+                                        .size(14.dp)
+                                        .padding(top = 3.dp),
+                                    strokeWidth = 2.dp
+                                )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    streamingText!!,
-                                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = chatFontSizeSp.sp),
-                                    color = MaterialTheme.colorScheme.onSurface
+                                ChatMessageRichContent(
+                                    text = streamingText!!,
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = chatFontSizeSp.sp),
                                 )
                             }
                         }
@@ -744,42 +823,44 @@ private fun ChatTabContent(viewModel: MainViewModel) {
             }
         }
         HorizontalDivider()
-        if (attachmentsLoading) {
-            Text(
-                stringResource(R.string.main_attachment_loading),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-            )
-        }
-        if (chatAttachments.isNotEmpty()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                chatAttachments.forEach { att ->
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
+        if (chatAttachmentUploadEnabled) {
+            if (attachmentsLoading) {
+                Text(
+                    stringResource(R.string.main_attachment_loading),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
+            if (chatAttachments.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    chatAttachments.forEach { att ->
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant
                         ) {
-                            Text(
-                                att.fileName.take(12).let { if (it.length < att.fileName.length) "$it…" else it },
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = 1
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            IconButton(
-                                onClick = { chatAttachments.removeAll { it.id == att.id } },
-                                modifier = Modifier.size(24.dp)
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("×", style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    att.fileName.take(12).let { if (it.length < att.fileName.length) "$it…" else it },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                IconButton(
+                                    onClick = { chatAttachments.removeAll { it.id == att.id } },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Text("×", style = MaterialTheme.typography.titleSmall)
+                                }
                             }
                         }
                     }
@@ -792,32 +873,50 @@ private fun ChatTabContent(viewModel: MainViewModel) {
                 .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box {
+            if (SHOW_CHAT_IMAGE_UPLOAD && SHOW_CHAT_FILE_ATTACHMENT_UPLOAD) {
+                Box {
+                    IconButton(
+                        onClick = { if (chatAttachments.size < MAX_CHAT_ATTACHMENTS) attachMenuExpanded = true },
+                        enabled = !chatBusy && operatorConnected && chatAttachments.size < MAX_CHAT_ATTACHMENTS,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = stringResource(R.string.main_add_attachment), modifier = Modifier.size(20.dp))
+                    }
+                    DropdownMenu(
+                        expanded = attachMenuExpanded,
+                        onDismissRequest = { attachMenuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.main_upload_image)) },
+                            onClick = {
+                                pickImageLauncher.launch("image/*")
+                                attachMenuExpanded = false
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.main_upload_file)) },
+                            onClick = {
+                                pickFileLauncher.launch("*/*")
+                                attachMenuExpanded = false
+                            }
+                        )
+                    }
+                }
+            } else if (SHOW_CHAT_IMAGE_UPLOAD) {
                 IconButton(
-                    onClick = { if (chatAttachments.size < MAX_CHAT_ATTACHMENTS) attachMenuExpanded = true },
+                    onClick = { if (chatAttachments.size < MAX_CHAT_ATTACHMENTS) pickImageLauncher.launch("image/*") },
                     enabled = !chatBusy && operatorConnected && chatAttachments.size < MAX_CHAT_ATTACHMENTS,
                     modifier = Modifier.size(36.dp)
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.main_add_attachment), modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.main_upload_image), modifier = Modifier.size(20.dp))
                 }
-                DropdownMenu(
-                    expanded = attachMenuExpanded,
-                    onDismissRequest = { attachMenuExpanded = false }
+            } else if (SHOW_CHAT_FILE_ATTACHMENT_UPLOAD) {
+                IconButton(
+                    onClick = { if (chatAttachments.size < MAX_CHAT_ATTACHMENTS) pickFileLauncher.launch("*/*") },
+                    enabled = !chatBusy && operatorConnected && chatAttachments.size < MAX_CHAT_ATTACHMENTS,
+                    modifier = Modifier.size(36.dp)
                 ) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.main_upload_image)) },
-                        onClick = {
-                            pickImageLauncher.launch("image/*")
-                            attachMenuExpanded = false
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.main_upload_file)) },
-                        onClick = {
-                            pickFileLauncher.launch("*/*")
-                            attachMenuExpanded = false
-                        }
-                    )
+                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.main_upload_file), modifier = Modifier.size(20.dp))
                 }
             }
             OutlinedTextField(
@@ -838,19 +937,52 @@ private fun ChatTabContent(viewModel: MainViewModel) {
             Spacer(modifier = Modifier.width(6.dp))
             IconButton(
                 onClick = {
-                    viewModel.sendChatMessage(
-                        inputText,
-                        chatAttachments.map { GatewayConnection.ChatAttachment(if (it.mimeType.startsWith("image/")) "image" else "file", it.mimeType, it.fileName, it.base64) }
-                    )
+                    val atts = if (chatAttachmentUploadEnabled) {
+                        chatAttachments.mapNotNull { att ->
+                            val isImage = att.mimeType.startsWith("image/")
+                            when {
+                                isImage -> GatewayConnection.ChatAttachment("image", att.mimeType, att.fileName, att.base64)
+                                SHOW_CHAT_FILE_ATTACHMENT_UPLOAD -> GatewayConnection.ChatAttachment("file", att.mimeType, att.fileName, att.base64)
+                                else -> null
+                            }
+                        }
+                    } else emptyList()
+                    viewModel.sendChatMessage(inputText, atts)
                     viewModel.setChatInputDraft("")
                     chatAttachments.clear()
                 },
-                enabled = (inputText.isNotBlank() || chatAttachments.isNotEmpty()) && !attachmentsLoading && !chatBusy && operatorConnected,
+                enabled = run {
+                    val hasPayload = inputText.isNotBlank() || (chatAttachmentUploadEnabled && chatAttachments.isNotEmpty())
+                    val notLoading = !chatAttachmentUploadEnabled || !attachmentsLoading
+                    hasPayload && notLoading && !chatBusy && operatorConnected
+                },
                 modifier = Modifier.size(36.dp)
             ) {
                 Icon(Icons.Default.Send, contentDescription = stringResource(R.string.main_send), modifier = Modifier.size(20.dp))
             }
         }
+    }
+    selectTextDialogContent?.let { text ->
+        AlertDialog(
+            onDismissRequest = { selectTextDialogContent = null },
+            title = { Text(stringResource(R.string.main_chat_select_text_dialog_title)) },
+            text = {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = {},
+                    readOnly = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = chatFontSizeSp.sp),
+                    maxLines = 18
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { selectTextDialogContent = null }) {
+                    Text(stringResource(R.string.common_close))
+                }
+            }
+        )
+    }
     }
 }
 
@@ -860,6 +992,7 @@ private fun ConnectionTabContent(viewModel: MainViewModel) {
     AppPrefs.init(context)
     val connectionState by viewModel.gatewayConnectionState.collectAsStateWithLifecycle()
     val nodeHandshakeDone by viewModel.nodeHandshakeDone.collectAsStateWithLifecycle()
+    val operatorState by viewModel.operatorConnectionState.collectAsStateWithLifecycle(initialValue = GatewayConnection.ConnectionState.Disconnected)
     val isSshConnected by viewModel.isSshConnected.collectAsStateWithLifecycle()
     val httpServiceEnabled by viewModel.httpServiceEnabled.collectAsStateWithLifecycle()
     val httpPort by viewModel.httpPort.collectAsStateWithLifecycle()
@@ -870,12 +1003,6 @@ private fun ConnectionTabContent(viewModel: MainViewModel) {
     var autoReconnectNode by remember { mutableStateOf(AppPrefs.getAutoReconnectNode()) }
 
     LaunchedEffect(Unit) { viewModel.refreshInitChecks() }
-    LaunchedEffect(Unit) {
-        while (true) {
-            kotlinx.coroutines.delay(5000L)
-            viewModel.refreshInitChecks()
-        }
-    }
 
     Column(
         modifier = Modifier
@@ -885,6 +1012,14 @@ private fun ConnectionTabContent(viewModel: MainViewModel) {
     ) {
         SectionTitle(title = stringResource(R.string.main_connection_status))
         Spacer(modifier = Modifier.height(8.dp))
+        val nodeRegistered = connectionState is GatewayConnection.ConnectionState.Connected && nodeHandshakeDone
+        val operatorConnected = operatorState is GatewayConnection.ConnectionState.Connected
+        val gatewayReadyForChat = nodeRegistered && operatorConnected
+        val showGatewayDisconnect =
+            connectionState is GatewayConnection.ConnectionState.Connecting ||
+                connectionState is GatewayConnection.ConnectionState.Connected ||
+                operatorState is GatewayConnection.ConnectionState.Connecting ||
+                operatorState is GatewayConnection.ConnectionState.Connected
         // Node (Gateway) 卡片：状态 + 配对码/扫码（默认收起）
         var nodeLinkExpanded by remember { mutableStateOf(false) }
         Card(
@@ -896,7 +1031,7 @@ private fun ConnectionTabContent(viewModel: MainViewModel) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.main_gateway_connection_card), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                    StatusChip(ready = connectionState is GatewayConnection.ConnectionState.Connected && nodeHandshakeDone)
+                    StatusChip(ready = gatewayReadyForChat)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
                     SmallCircleCheckbox(checked = autoReconnectNode, onCheckedChange = { autoReconnectNode = it; AppPrefs.setAutoReconnectNode(it) })
@@ -905,10 +1040,12 @@ private fun ConnectionTabContent(viewModel: MainViewModel) {
                 }
                 Text(
                     when {
-                        connectionState is GatewayConnection.ConnectionState.Connected && nodeHandshakeDone -> stringResource(R.string.main_gateway_connected_registered)
-                        connectionState is GatewayConnection.ConnectionState.Connected && !nodeHandshakeDone -> stringResource(R.string.main_gateway_connected_waiting)
-                        connectionState is GatewayConnection.ConnectionState.Connecting -> stringResource(R.string.common_connecting)
                         connectionState is GatewayConnection.ConnectionState.Error -> stringResource(R.string.main_gateway_connect_failed)
+                        connectionState is GatewayConnection.ConnectionState.Connecting ||
+                            operatorState is GatewayConnection.ConnectionState.Connecting -> stringResource(R.string.common_connecting)
+                        nodeRegistered && operatorConnected -> stringResource(R.string.main_gateway_connected_registered)
+                        nodeRegistered && !operatorConnected -> stringResource(R.string.main_gateway_operator_channel_down)
+                        connectionState is GatewayConnection.ConnectionState.Connected && !nodeHandshakeDone -> stringResource(R.string.main_gateway_connected_waiting)
                         else -> stringResource(R.string.common_disconnected)
                     },
                     style = MaterialTheme.typography.bodySmall,
@@ -917,7 +1054,7 @@ private fun ConnectionTabContent(viewModel: MainViewModel) {
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (connectionState is GatewayConnection.ConnectionState.Connected) {
+                    if (showGatewayDisconnect) {
                         OutlinedButton(onClick = { viewModel.disconnectGateway() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.common_disconnect)) }
                     } else {
                         Button(onClick = { viewModel.connectGateway() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.common_connect)) }

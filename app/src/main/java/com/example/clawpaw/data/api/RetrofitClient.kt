@@ -122,8 +122,18 @@ object RetrofitClient {
         _gatewayPassword.value = p.getString(KEY_GATEWAY_PASSWORD, "") ?: ""
         _nodeDisplayName.value = p.getString(KEY_NODE_DISPLAY_NAME, "")?.takeIf { it.isNotBlank() } ?: ""
         _gatewayPort.value = p.getInt(KEY_GATEWAY_PORT, DEFAULT_GATEWAY_PORT)
-        _hasNodeDeviceToken.value = p.getBoolean(KEY_HAS_NODE_DEVICE_TOKEN, false)
-        _hasOperatorDeviceToken.value = p.getBoolean(KEY_HAS_OPERATOR_DEVICE_TOKEN, false)
+        val rawHasNodeDev = p.getBoolean(KEY_HAS_NODE_DEVICE_TOKEN, false)
+        val rawHasOpDev = p.getBoolean(KEY_HAS_OPERATOR_DEVICE_TOKEN, false)
+        val hasNodeDev = rawHasNodeDev && _nodeToken.value.isNotBlank()
+        val hasOpDev = rawHasOpDev && _operatorToken.value.isNotBlank()
+        _hasNodeDeviceToken.value = hasNodeDev
+        _hasOperatorDeviceToken.value = hasOpDev
+        if (hasNodeDev != rawHasNodeDev || hasOpDev != rawHasOpDev) {
+            p.edit()
+                .putBoolean(KEY_HAS_NODE_DEVICE_TOKEN, hasNodeDev)
+                .putBoolean(KEY_HAS_OPERATOR_DEVICE_TOKEN, hasOpDev)
+                .apply()
+        }
     }
 
     fun getGatewayPort(): Int = _gatewayPort.value
@@ -232,5 +242,19 @@ object RetrofitClient {
         _nodeDisplayName.value = trimmed
         prefs?.edit()?.putString(KEY_NODE_DISPLAY_NAME, trimmed)?.apply()
         pushActiveProfileSnapshot()
+    }
+
+    /**
+     * 将当前连接参数与三个 Gateway 配置槽恢复为默认空状态，并选中槽位 0。
+     * 调用方宜先停止 Gateway 连接（如 [com.example.clawpaw.presentation.GatewaySettingsViewModel.disconnect]）。
+     */
+    fun resetGatewayToDefaults() {
+        applyGatewayProfile(GatewayProfile.empty())
+        setHasNodeDeviceToken(false)
+        setHasOperatorDeviceToken(false)
+        for (i in 0..2) {
+            GatewayProfileStore.saveSlot(i, GatewayProfile.empty())
+        }
+        GatewayProfileStore.setActiveIndex(0)
     }
 }

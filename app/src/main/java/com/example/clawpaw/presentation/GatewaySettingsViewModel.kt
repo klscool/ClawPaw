@@ -88,13 +88,13 @@ class GatewaySettingsViewModel(application: Application) : AndroidViewModel(appl
 
     val connectionState = GatewayConnectionService.connectionState.stateIn(
         viewModelScope,
-        SharingStarted.WhileSubscribed(5000),
+        SharingStarted.Eagerly,
         ConnectionState.Disconnected
     )
 
     val nodeHandshakeDone = GatewayConnectionService.nodeHandshakeDone.stateIn(
         viewModelScope,
-        SharingStarted.WhileSubscribed(5000),
+        SharingStarted.Eagerly,
         false
     )
 
@@ -178,6 +178,13 @@ class GatewaySettingsViewModel(application: Application) : AndroidViewModel(appl
 
     fun clearDeviceIdentity() {
         GatewayConnection.clearStoredDeviceIdentity(getApplication())
+    }
+
+    /** 断开 Gateway，并清空地址/端口/令牌/密码及三套配置槽，回到默认。 */
+    fun resetGatewayConfigurationToDefaults() {
+        disconnect()
+        RetrofitClient.resetGatewayToDefaults()
+        _activeProfileIndex.value = GatewayProfileStore.getActiveIndex()
     }
 
     fun getDebugToast(): Boolean = DebugPrefs.getDebugToast()

@@ -30,11 +30,11 @@ enum class ChatRefreshInterval(val key: String, val delayMs: Long) {
     }
 }
 
-/** 对话字号：大=18 中=15 小=12 */
+/** 对话字号：大/中/小（默认中号）；相对以往整体小 2sp */
 enum class ChatFontSize(val key: String, val sp: Int) {
-    LARGE("large", 18),
-    MEDIUM("medium", 15),
-    SMALL("small", 12);
+    LARGE("large", 16),
+    MEDIUM("medium", 13),
+    SMALL("small", 10);
     companion object {
         fun fromKey(key: String?) = entries.find { it.key == key } ?: MEDIUM
     }

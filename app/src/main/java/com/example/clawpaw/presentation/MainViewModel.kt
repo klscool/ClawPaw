@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
@@ -70,7 +71,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val gatewayConnectionState = GatewayConnectionService.connectionState.stateIn(
         viewModelScope,
-        SharingStarted.WhileSubscribed(5000),
+        SharingStarted.Eagerly,
         GatewayConnection.ConnectionState.Disconnected
     )
 
@@ -89,14 +90,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Node 是否已完成握手（仅此时 Gateway 会认为 node 在线） */
     val nodeHandshakeDone = GatewayConnectionService.nodeHandshakeDone.stateIn(
         viewModelScope,
-        SharingStarted.WhileSubscribed(5000),
+        SharingStarted.Eagerly,
         false
     )
 
     /** Operator 连接状态，对话页用此判断是否可发消息/拉历史 */
     val operatorConnectionState = GatewayConnectionService.operatorConnectionState.stateIn(
         viewModelScope,
-        SharingStarted.WhileSubscribed(5000),
+        SharingStarted.Eagerly,
         GatewayConnection.ConnectionState.Disconnected
     )
 
@@ -125,6 +126,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var sshReconnectJob: Job? = null
     private var lastSshReconnectAttemptMs: Long = 0
+
+    /** 须在 init 中调用 doRefreshInitChecks 之前完成初始化（Main.immediate 会立刻执行协程体） */
+    private val _httpPort = MutableStateFlow<Int?>(8765)
+    val httpPort = _httpPort.asStateFlow()
+
+    private val _localIpAddress = MutableStateFlow("")
+    val localIpAddress = _localIpAddress.asStateFlow()
+
+    private val _tailscaleIpAddress = MutableStateFlow("")
+    val tailscaleIpAddress = _tailscaleIpAddress.asStateFlow()
 
     /** 外部执行命令日志（ADB/WS/HTTP），供主界面「执行日志」展示 */
     val commandLogEntries = CommandLog.entries
@@ -176,6 +187,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         MainPrefs.init(getApplication())
+        // 全 Tab 周期刷新 SSH/无障碍/本机 IP 等；此前仅连接页内轮询，切到聊天页时 SSH 状态会陈旧
+        viewModelScope.launch {
+            doRefreshInitChecks()
+            while (isActive) {
+                delay(5000)
+                doRefreshInitChecks()
+            }
+        }
         viewModelScope.launch {
             var chatCollectJob: Job? = null
             operatorConnectionState.collect { state ->
@@ -560,16 +579,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         refreshLocalNetworkInfo()
     }
-
-    private val _httpPort = MutableStateFlow<Int?>(8765)
-    val httpPort = _httpPort.asStateFlow()
-
-    private val _localIpAddress = MutableStateFlow<String>("")
-    val localIpAddress = _localIpAddress.asStateFlow()
-
-    /** Tailscale 等 CGNAT 网段（100.x.x.x）的 IP，未检测到时为空 */
-    private val _tailscaleIpAddress = MutableStateFlow<String>("")
-    val tailscaleIpAddress = _tailscaleIpAddress.asStateFlow()
 
     /** 刷新本机主要网络 IP（用于展示），在 refreshInitChecks 时一并调用；同时检测 Tailscale IP */
     fun refreshLocalNetworkInfo() {

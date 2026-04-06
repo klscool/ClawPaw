@@ -79,6 +79,9 @@
     <string name="main_gateway_connected_registered">Connected (Gateway registered)</string>
     <string name="main_gateway_connected_waiting">Connected (waiting for Gateway…)</string>
     <string name="main_gateway_connect_failed">Connection failed</string>
+    <string name="main_gateway_operator_channel_down">Node registered; operator channel not connected (chat unavailable)</string>
+    <string name="main_chat_action_select_text">Select text</string>
+    <string name="main_chat_select_text_dialog_title">Select text</string>
     <string name="main_chat_with_session">Chat with %1$s</string>
     <string name="main_chat_with_openclaw">Chat with OpenClaw</string>
     <string name="main_select_session">Select session</string>
@@ -88,6 +91,7 @@
     <string name="main_collapse">Collapse</string>
     <string name="main_10min_2hr">10 min – 2 hr</string>
     <string name="main_role">Role</string>
+    <string name="main_filter">Filter</string>
     <string name="main_show_chat_only">Chat only</string>
     <string name="main_show_tool_calls">Show tool calls</string>
     <string name="main_readable">Readable</string>
@@ -207,6 +211,10 @@
     <string name="gateway_disconnected_toast">Disconnected</string>
     <string name="gateway_saved_toast">Config saved</string>
     <string name="gateway_cleared_toast">Identity cleared. Reconnect and run openclaw nodes approve on host.</string>
+    <string name="gateway_reset_config">Reset configuration</string>
+    <string name="gateway_reset_config_confirm_title">Reset Gateway configuration?</string>
+    <string name="gateway_reset_config_confirm_text">This disconnects and clears host, port, tokens, password, and all three profile slots to defaults. This cannot be undone. Continue?</string>
+    <string name="gateway_reset_config_toast">Gateway configuration reset</string>
 
     <!-- Onboarding -->
     <string name="onboarding_title">ClawPaw setup</string>

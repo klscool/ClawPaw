@@ -79,6 +79,9 @@
     <string name="main_gateway_connected_registered">已连接（Gateway 已注册）</string>
     <string name="main_gateway_connected_waiting">已连接（等待 Gateway 注册…）</string>
     <string name="main_gateway_connect_failed">连接失败</string>
+    <string name="main_gateway_operator_channel_down">Node 已注册，对话通道（Operator）未连接，聊天不可用</string>
+    <string name="main_chat_action_select_text">选择文字</string>
+    <string name="main_chat_select_text_dialog_title">选择文字</string>
     <string name="main_chat_with_session">与 %1$s 对话</string>
     <string name="main_chat_with_openclaw">与 OpenClaw 对话</string>
     <string name="main_select_session">选择会话</string>
@@ -88,6 +91,7 @@
     <string name="main_collapse">收起</string>
     <string name="main_10min_2hr">10分钟～2小时</string>
     <string name="main_role">角色</string>
+    <string name="main_filter">过滤</string>
     <string name="main_show_chat_only">只显示聊天</string>
     <string name="main_show_tool_calls">显示工具调用</string>
     <string name="main_readable">可读</string>
@@ -207,6 +211,10 @@
     <string name="gateway_disconnected_toast">已断开</string>
     <string name="gateway_saved_toast">配置已保存</string>
     <string name="gateway_cleared_toast">已清除设备身份，请重新连接并在主机执行 openclaw nodes approve</string>
+    <string name="gateway_reset_config">重置配置</string>
+    <string name="gateway_reset_config_confirm_title">重置 Gateway 配置？</string>
+    <string name="gateway_reset_config_confirm_text">将断开连接，并清空地址、端口、令牌、密码及三个配置槽，恢复为默认。此操作不可撤销。确定继续？</string>
+    <string name="gateway_reset_config_toast">已重置 Gateway 配置</string>
 
     <!-- Onboarding -->
     <string name="onboarding_title">ClawPaw 引导</string>

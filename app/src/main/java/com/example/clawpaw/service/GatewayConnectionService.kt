@@ -94,6 +94,8 @@ class GatewayConnectionService : Service() {
     private var backgroundCheckJob: Job? = null
     /** 当前 Gateway 地址，Node 断线时若为 localhost 则先检查 SSH 是否实际已断 */
     private var currentGatewayHost: String? = null
+    /** 与 currentGatewayHost 成对，用于判断 onStartCommand 是否为重复启动（避免无谓 disconnect 中止对话） */
+    private var lastStartedPort: Int = -1
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -110,22 +112,28 @@ class GatewayConnectionService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        AppPrefs.init(applicationContext)
+        RetrofitClient.init(applicationContext)
+        RetrofitClient.reloadFromPrefs()
+        val port = RetrofitClient.getGatewayPort()
+        // 已连接且地址未变：不要再 disconnect，否则 Operator 掉线会让 Gateway 中止正在生成的对话
+        val nodeOk = _connectionState.value is GatewayConnection.ConnectionState.Connected
+        val opOk = _operatorConnectionState.value is GatewayConnection.ConnectionState.Connected
+        if (host == currentGatewayHost && port == lastStartedPort && nodeOk && opOk && _nodeHandshakeDone.value &&
+            gatewayConnection != null && operatorGatewayConnection != null) {
+            Logger.i(TAG, "已有活跃连接，跳过重建 (host:port 未变)")
+            refreshGatewayForegroundNotification(getString(R.string.notification_gateway_connected))
+            return START_STICKY
+        }
         currentConnection = null
         operatorConnection = null
         gatewayConnection?.disconnect()
         operatorGatewayConnection?.disconnect()
-        val port = RetrofitClient.getGatewayPort()
         Logger.i(TAG, "创建 GatewayConnection, host=$host, port=$port（无障碍非必须，仅操作类命令需要）")
         currentGatewayHost = host
-        AppPrefs.init(applicationContext)
-        // 必须保持前台：否则息屏后进程被挂起，SSH/WebSocket 的 30 秒保活发不出去，约 3–5 分钟被对端/NAT 断连
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.notification_gateway_connecting)), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        } else {
-            startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.notification_gateway_connecting)))
-        }
-        RetrofitClient.init(applicationContext)
-        RetrofitClient.reloadFromPrefs()
+        lastStartedPort = port
+        // 必须保持前台：否则息屏后进程被挂起，WebSocket ping 发不出去，约 3–5 分钟被对端/NAT 断连
+        refreshGatewayForegroundNotification(getString(R.string.notification_gateway_connecting))
         val nodeAuth = RetrofitClient.getAuthForConnect("node") ?: ""
         val operatorAuth = RetrofitClient.getAuthForConnect("operator") ?: ""
         val displayName = RetrofitClient.getNodeDisplayName()
@@ -317,7 +325,7 @@ class GatewayConnectionService : Service() {
             launch {
                 connection.connectionState.collect { state ->
                     _connectionState.value = state
-                    updateNotification(state)
+                    refreshGatewayNotificationFromStates()
                     Logger.i(TAG, "node 连接状态: $state")
                     if (state is GatewayConnection.ConnectionState.Disconnected || state is GatewayConnection.ConnectionState.Error) {
                         _nodeHandshakeDone.value = false
@@ -357,6 +365,7 @@ class GatewayConnectionService : Service() {
             launch {
                 connection.handshakeDoneFlow.collect { done ->
                     _nodeHandshakeDone.value = done
+                    refreshGatewayNotificationFromStates()
                     Logger.i(TAG, "node 握手完成: $done")
                     if (done) {
                         com.example.clawpaw.data.api.RetrofitClient.init(applicationContext)
@@ -370,6 +379,7 @@ class GatewayConnectionService : Service() {
         scope.launch {
             operatorConn.connectionState.collect { s ->
                 _operatorConnectionState.value = s
+                refreshGatewayNotificationFromStates()
                 Logger.i(TAG, "operator 连接状态: $s")
                 if (s is GatewayConnection.ConnectionState.Disconnected || s is GatewayConnection.ConnectionState.Error) {
                     if (AppPrefs.getAutoReconnectNode()) {
@@ -448,6 +458,8 @@ class GatewayConnectionService : Service() {
         gatewayConnection = null
         operatorGatewayConnection?.disconnect()
         operatorGatewayConnection = null
+        lastStartedPort = -1
+        currentGatewayHost = null
         job.cancel()
         _connectionState.value = GatewayConnection.ConnectionState.Disconnected
         _operatorConnectionState.value = GatewayConnection.ConnectionState.Disconnected
@@ -463,16 +475,36 @@ class GatewayConnectionService : Service() {
         }
     }
 
-    private fun updateNotification(state: GatewayConnection.ConnectionState) {
-        AppPrefs.init(applicationContext)
-        if (!AppPrefs.getPersistentNotification()) return
-        val text = when (state) {
-            is GatewayConnection.ConnectionState.Connected -> getString(R.string.notification_gateway_connected)
-            is GatewayConnection.ConnectionState.Connecting -> getString(R.string.notification_gateway_connecting)
-            is GatewayConnection.ConnectionState.Error -> getString(R.string.notification_gateway_error, state.message)
-            else -> getString(R.string.notification_gateway_disconnected)
+    /** 前台 Service 必须用 startForeground 刷新内容，仅 notify 在部分机型上不会替换「连接中」文案 */
+    private fun refreshGatewayForegroundNotification(contentText: String) {
+        val notification = buildNotification(contentText)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
         }
-        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(text))
+        AppPrefs.init(applicationContext)
+        if (!AppPrefs.getPersistentNotification()) {
+            stopForeground(Service.STOP_FOREGROUND_DETACH)
+        }
+    }
+
+    /** Node + Operator + 握手 综合状态，与主界面连接页一致后再显示「已连接」 */
+    private fun refreshGatewayNotificationFromStates() {
+        val node = _connectionState.value
+        val op = _operatorConnectionState.value
+        val handshake = _nodeHandshakeDone.value
+        val text = when {
+            node is GatewayConnection.ConnectionState.Error -> getString(R.string.notification_gateway_error, node.message)
+            op is GatewayConnection.ConnectionState.Error -> getString(R.string.notification_gateway_error, op.message)
+            node is GatewayConnection.ConnectionState.Connecting || op is GatewayConnection.ConnectionState.Connecting -> getString(R.string.notification_gateway_connecting)
+            node is GatewayConnection.ConnectionState.Connected && handshake && op is GatewayConnection.ConnectionState.Connected -> getString(R.string.notification_gateway_connected)
+            node is GatewayConnection.ConnectionState.Connected && handshake -> getString(R.string.notification_gateway_connecting)
+            node is GatewayConnection.ConnectionState.Connected && !handshake -> getString(R.string.notification_gateway_connecting)
+            node is GatewayConnection.ConnectionState.Disconnected && op is GatewayConnection.ConnectionState.Disconnected -> getString(R.string.notification_gateway_disconnected)
+            else -> getString(R.string.notification_gateway_connecting)
+        }
+        refreshGatewayForegroundNotification(text)
     }
 
     /**

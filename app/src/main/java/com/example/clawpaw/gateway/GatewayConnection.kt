@@ -78,7 +78,8 @@ class GatewayConnection(
     private val okHttp = OkHttpClient.Builder()
         .readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
         .writeTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
-        .pingInterval(30, java.util.concurrent.TimeUnit.SECONDS) // 保活：每 30 秒发送 WebSocket ping，维持长连接
+        // 更短 ping：降低 NAT/蜂窝网络 idle 断连概率，减轻退后台后被掐线导致对话 aborted
+        .pingInterval(15, java.util.concurrent.TimeUnit.SECONDS)
         .build()
 
     private var webSocket: WebSocket? = null
@@ -369,6 +370,26 @@ class GatewayConnection(
         }
     }
 
+    /** 在 JSON 子树中查找第一个非空的 `deviceToken` 字符串（兼容 Gateway 嵌套字段差异）。 */
+    private fun findNestedDeviceToken(root: JSONObject?, maxDepth: Int = 12, depth: Int = 0): String? {
+        if (root == null || depth > maxDepth) return null
+        root.optString("deviceToken", "").takeIf { it.isNotBlank() }?.let { return it }
+        val it = root.keys()
+        while (it.hasNext()) {
+            val key = it.next()
+            when (val v = root.opt(key)) {
+                is JSONObject -> findNestedDeviceToken(v, maxDepth, depth + 1)?.let { return it }
+                is JSONArray -> {
+                    for (i in 0 until v.length()) {
+                        val el = v.opt(i)
+                        if (el is JSONObject) findNestedDeviceToken(el, maxDepth, depth + 1)?.let { return it }
+                    }
+                }
+            }
+        }
+        return null
+    }
+
     /** 若 Gateway 在 hello-ok/connect 响应中下发了 deviceToken，持久化后后续连接用设备 token 而非 bootstrapToken。res 为完整 res 消息，payload 为 res.payload（部分 Gateway 把 auth 放在 res 根）。 */
     private fun persistDeviceTokenIfPresent(res: JSONObject, payload: JSONObject) {
         fun fromAuth(obj: JSONObject?): String? = obj?.let { a ->
@@ -379,10 +400,14 @@ class GatewayConnection(
             ?: fromAuth(payload.optJSONObject("auth"))
             ?: payload.optString("deviceToken", "").takeIf { it.isNotBlank() }
             ?: payload.optJSONObject("snapshot")?.optJSONObject("auth")?.optString("deviceToken", "")?.takeIf { it.isNotBlank() }
+            ?: findNestedDeviceToken(payload)
+            ?: findNestedDeviceToken(res)
         if (deviceToken.isNullOrEmpty()) {
-            if (role == "node") {
-                Logger.w(logTag, "node 握手成功但未解析到 deviceToken，Gateway 可能未下发或字段不同。请查看本条之前的 [node] WS res 完整 的 JSON 结构，便于补充解析路径。res(前500字符)=${res.toString().take(500)}")
-            }
+            Logger.w(
+                logTag,
+                "握手成功但未解析到 deviceToken。若紧接着出现 bootstrap invalid：OpenClaw 的 bootstrap 为「一次性」，验证成功即从服务端删除；" +
+                    "本机若未存下 deviceToken 就只能重新扫码。请对照上一条 WS res 完整。res(前500)=${res.toString().take(500)}",
+            )
             return
         }
         context?.applicationContext?.let { ctx ->
@@ -406,13 +431,62 @@ class GatewayConnection(
         try {
             val (deviceId, publicKeyBase64Url, signPayload) = getOrCreateEd25519Identity()
             val signedAtMs = System.currentTimeMillis()
-            // 一次 reload 内取 token 与是否来自持久化，保证一致，避免误发 bootstrapToken
-            val (authTokenRaw, fromPersistent) = context?.applicationContext?.let { ctx ->
+            // OpenClaw：gateway.auth.mode=token 时 authorizeTokenAuth 只认 params.auth.token（共享密钥），
+            // 与握手颁发的设备 JWT 是两条线。批准后重连需同时带「网关 token」+ auth.deviceToken；
+            // v3 签名用的字符串须与 device-auth.ts resolveSignatureToken 一致：token ?? deviceToken ?? bootstrapToken。
+            val trip = context?.applicationContext?.let { ctx ->
                 RetrofitClient.init(ctx)
                 RetrofitClient.reloadFromPrefs()
-                RetrofitClient.getAuthForConnectWithSource(role)
-            } ?: Pair(null, false)
-            val authToken = authTokenRaw?.takeIf { it.isNotBlank() }?.trim() ?: gatewayToken?.takeIf { it.isNotBlank() }?.trim()
+                val gatewayShared = RetrofitClient.getOriginalToken().trim().takeIf { it.isNotBlank() }
+                val roleSlotRaw = (if (role == "operator") RetrofitClient.getOperatorToken() else RetrofitClient.getNodeToken()).trim()
+                var roleCred = roleSlotRaw.takeIf { it.isNotBlank() } ?: gatewayToken?.trim()?.takeIf { it.isNotBlank() }
+                var hasDevTok = if (role == "operator") RetrofitClient.getHasOperatorDeviceToken() else RetrofitClient.getHasNodeDeviceToken()
+                if (hasDevTok && roleCred.isNullOrBlank()) {
+                    Logger.w(logTag, "已标记 deviceToken 已持久化但本地无 token，清除标记（避免 connect 不带有效 auth）")
+                    if (role == "operator") RetrofitClient.setHasOperatorDeviceToken(false) else RetrofitClient.setHasNodeDeviceToken(false)
+                    RetrofitClient.reloadFromPrefs()
+                    hasDevTok = false
+                    roleCred = (if (role == "operator") RetrofitClient.getOperatorToken() else RetrofitClient.getNodeToken()).trim()
+                        .takeIf { it.isNotBlank() } ?: gatewayToken?.trim()?.takeIf { it.isNotBlank() }
+                }
+                Triple(gatewayShared, roleCred, hasDevTok)
+            } ?: Triple(null, gatewayToken?.trim()?.takeIf { it.isNotBlank() }, false)
+            var gatewayShared = trip.first
+            var roleCred = trip.second
+            var hasDevTok = trip.third
+            val passwordOnly = context?.applicationContext?.let {
+                RetrofitClient.getGatewayPassword().trim().takeIf { it.isNotBlank() }
+            }
+            val authObj = JSONObject()
+            var signToken: String? = null
+            when {
+                gatewayShared != null && hasDevTok && !roleCred.isNullOrBlank() -> {
+                    authObj.put("token", gatewayShared)
+                    authObj.put("deviceToken", roleCred)
+                    signToken = gatewayShared
+                }
+                gatewayShared != null && !hasDevTok && !roleCred.isNullOrBlank() -> {
+                    authObj.put("token", gatewayShared)
+                    authObj.put("bootstrapToken", roleCred)
+                    signToken = gatewayShared
+                }
+                gatewayShared != null && roleCred.isNullOrBlank() -> {
+                    authObj.put("token", gatewayShared)
+                    signToken = gatewayShared
+                }
+                gatewayShared == null && hasDevTok && !roleCred.isNullOrBlank() -> {
+                    authObj.put("deviceToken", roleCred)
+                    signToken = roleCred
+                }
+                gatewayShared == null && !hasDevTok && !roleCred.isNullOrBlank() -> {
+                    authObj.put("token", roleCred)
+                    authObj.put("bootstrapToken", roleCred)
+                    signToken = roleCred
+                }
+            }
+            if (authObj.length() == 0 && passwordOnly != null) {
+                authObj.put("password", passwordOnly)
+            }
             // 与官方 openclaw-android-node-apk 一致：node 用 clientMode=node，operator 用 clientMode=ui；签名 payload 与 connect  params 一致
             val clientMode = if (role == "operator") "ui" else "node"
             val payloadStr = buildDeviceAuthPayloadV3(
@@ -422,7 +496,7 @@ class GatewayConnection(
                 role = role,
                 scopes = scopes,
                 signedAtMs = signedAtMs,
-                token = authToken,
+                token = signToken,
                 nonce = challengeNonce,
                 platform = "android",
                 deviceFamily = "Android"
@@ -444,14 +518,12 @@ class GatewayConnection(
                 })
                 put("role", role)
                 put("scopes", org.json.JSONArray().apply { scopes.forEach { put(it) } })
-                if (!authToken.isNullOrEmpty()) {
-                    val preview = if (authToken.length <= 12) "***" else "${authToken.take(4)}...${authToken.takeLast(4)}"
-                    Logger.i(logTag, "连接使用的 token: 来源=${if (fromPersistent) "持久化" else role} token, 长度=${authToken.length}, 预览=$preview, auth 字段=${if (fromPersistent) "仅 token" else "token+bootstrapToken"}")
-                    val authObj = JSONObject().apply { put("token", authToken) }
-                    if (!fromPersistent) authObj.put("bootstrapToken", authToken)
+                if (authObj.length() > 0) {
+                    val keys = authObj.keys().asSequence().toList().sorted().joinToString(",")
+                    Logger.i(logTag, "connect auth 字段: $keys (网关共享 token=${if (gatewayShared != null) "有" else "无"}, deviceToken已持久化=$hasDevTok, role 槽=${if (roleCred.isNullOrBlank()) "空" else "有"})")
                     put("auth", authObj)
                 } else {
-                    Logger.i(logTag, "连接使用的 token: 无（未配置持久化/Node/Operator token）")
+                    Logger.i(logTag, "连接使用的 token: 无（未配置持久化/Node/Operator token/密码）；若 Gateway 要求 OPENCLAW_GATEWAY_TOKEN，请在设置中填写「持久化 Token」")
                 }
                 put("caps", if (role == "node") FlavorCommandGate.nodeCapsJsonArray() else org.json.JSONArray())
                 put("commands", if (role == "node") FlavorCommandGate.nodeCommandsJsonArray() else org.json.JSONArray())

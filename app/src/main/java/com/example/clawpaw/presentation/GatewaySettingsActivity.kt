@@ -85,6 +85,7 @@ fun GatewaySettingsScreen(
     var editPassword by remember(gatewayPassword) { mutableStateOf(gatewayPassword) }
     var showPassword by remember { mutableStateOf(false) }
     var showClearKeysConfirm by remember { mutableStateOf(false) }
+    var showResetConfigConfirm by remember { mutableStateOf(false) }
 
     fun buildProfileFromEdits(): GatewayProfile = GatewayProfile(
         host = editHost.trim(),
@@ -343,6 +344,42 @@ fun GatewaySettingsScreen(
             )
 
             Spacer(modifier = Modifier.height(24.dp))
+
+            OutlinedButton(
+                onClick = { showResetConfigConfirm = true },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+            ) {
+                Text(stringResource(R.string.gateway_reset_config))
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            if (showResetConfigConfirm) {
+                AlertDialog(
+                    onDismissRequest = { showResetConfigConfirm = false },
+                    shape = MaterialTheme.shapes.extraLarge,
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    title = { Text(stringResource(R.string.gateway_reset_config_confirm_title), style = MaterialTheme.typography.titleLarge) },
+                    text = { Text(stringResource(R.string.gateway_reset_config_confirm_text), style = MaterialTheme.typography.bodyMedium) },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                showResetConfigConfirm = false
+                                viewModel.resetGatewayConfigurationToDefaults()
+                                Toast.makeText(context, context.getString(R.string.gateway_reset_config_toast), Toast.LENGTH_LONG).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                        ) { Text(stringResource(R.string.common_ok)) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showResetConfigConfirm = false }) {
+                            Text(stringResource(R.string.common_cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                )
+            }
 
             OutlinedButton(
                 onClick = { showClearKeysConfirm = true },
